@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tochi Event</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" type="image/jpeg" href="assets/logo.jpg">
+<script>
+  try {
+    var t = localStorage.getItem("tochi_theme");
+    if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+</script>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" class="login-screen">
+  <form id="loginForm" class="login-card">
+    <div class="brand">
+      <div class="mark"><img src="assets/logo.jpg" alt="Tochi Event"></div>
+      <div class="brand-text">
+        <h1>Tochi Event</h1>
+      </div>
+    </div>
+    <p class="section-sub" style="text-align:center">Sign in with the account your studio owner set up for you.</p>
+    <div class="field">
+      <label for="loginEmail">Email</label>
+      <input type="text" id="loginEmail" autocomplete="username" required>
+    </div>
+    <div class="field">
+      <label for="loginPassword">Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" required>
+    </div>
+    <div id="loginError" class="banner" style="color:var(--danger);background:var(--danger-bg)" hidden></div>
+    <button class="btn primary" type="submit" style="justify-content:center">Sign in</button>
+    <p class="section-sub" style="text-align:center">No account yet? Ask the studio owner to add you from the Team tab, or run <code>npm run seed</code> to create the first owner account.</p>
+  </form>
+</div>
+
+<!-- APP SHELL -->
+<div id="app" hidden>
+  <div class="topbar">
+    <div class="brand-row">
+      <div class="brand">
+        <div class="mark"><img src="assets/logo.jpg" alt="Tochi Event"></div>
+        <div class="brand-text">
+          <h1>Tochi Event</h1>
+        </div>
+      </div>
+      <div class="viewer" id="viewerBox">
+        <span id="viewerName" style="font-size:13px;font-weight:600;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+        <span class="role-pill" id="rolePill"></span>
+        <button class="icon-btn" id="themeToggle" type="button" title="Toggle dark mode">🌙</button>
+        <button class="btn sm" id="logoutBtn" type="button" title="Sign out">⏻ Sign out</button>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="overview" type="button">Overview</button>
+      <button class="tab" data-tab="items" type="button">Items</button>
+      <button class="tab" data-tab="appointments" type="button">Appointments</button>
+      <button class="tab" data-tab="events" type="button">Events</button>
+      <button class="tab" data-tab="expenses" type="button">Expenses <span class="lock" id="expensesLock">🔒</span></button>
+      <button class="tab" data-tab="team" type="button">Team <span class="lock" id="teamLock">🔒</span></button>
+    </nav>
+  </div>
+
+  <main>
+    <!-- OVERVIEW -->
+    <section data-panel="overview">
+      <div class="section-head">
+        <div>
+          <h2>Business overview</h2>
+        </div>
+        <div class="range-toggle" id="rangeToggle">
+          <button class="active" data-range="month" type="button">This month</button>
+          <button data-range="all" type="button">All time</button>
+        </div>
+      </div>
+      <div class="kpi-grid" id="kpiGrid"></div>
+      <div class="two-col">
+        <div class="card chart-card">
+          <h3>Revenue by event type</h3>
+          <div id="catChart"></div>
+        </div>
+        <div class="card chart-card">
+          <h3>Revenue, last 6 months</h3>
+          <div class="sparkline-wrap" id="trendChart"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-head" style="padding:16px 16px 0"><h2 style="font-size:15px">Recent activity</h2></div>
+        <div class="activity-list" id="activityList" style="padding:4px 16px 16px"></div>
+      </div>
+    </section>
+
+    <!-- ITEMS -->
+    <section data-panel="items" hidden>
+      <div class="section-head">
+        <div><h2>Inventory</h2><p class="section-sub">Décor, furniture and supplies shared across all event types.</p></div>
+        <button class="btn primary" id="addItemBtn" type="button">+ Add item</button>
+      </div>
+      <div class="card"><div class="table-wrap" id="itemsTableWrap"></div></div>
+    </section>
+
+    <!-- APPOINTMENTS -->
+    <section data-panel="appointments" hidden>
+      <div class="section-head">
+        <div><h2>Appointments</h2><p class="section-sub">Bookings and consultations across all event types.</p></div>
+        <button class="btn primary" id="addApptBtn" type="button">+ New appointment</button>
+      </div>
+      <div class="card">
+        <div class="toolbar" style="padding:14px 16px 0">
+          <select id="apptCategoryFilter"><option value="">All event types</option></select>
+          <select id="apptStatusFilter">
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="table-wrap" id="apptsTableWrap"></div>
+      </div>
+    </section>
+
+    <!-- EVENTS -->
+    <section data-panel="events" hidden>
+      <div class="section-head">
+        <div><h2>Events</h2><p class="section-sub">Revenue, payment status and items used per event.</p></div>
+        <button class="btn primary" id="addEventBtn" type="button">+ Add event</button>
+      </div>
+      <div class="card"><div class="table-wrap" id="eventsTableWrap"></div></div>
+    </section>
+
+    <!-- EXPENSES -->
+    <section data-panel="expenses" hidden>
+      <div class="section-head">
+        <div><h2>Expenses &amp; profit</h2><p class="section-sub">Visible to owner accounts only.</p></div>
+        <button class="btn primary" id="addExpenseBtn" type="button">+ Add expense</button>
+      </div>
+      <div id="expensesLockedBanner" class="card" hidden>
+        <div class="empty"><div class="glyph">🔒</div><h3>Owner access only</h3><p>Ask the studio owner to view expenses and profit.</p></div>
+      </div>
+      <div id="expensesContent" hidden style="display:flex;flex-direction:column;gap:14px">
+        <div class="kpi-grid" id="profitKpiGrid"></div>
+        <div class="card" id="monthlyBreakdown"></div>
+        <div class="card"><div class="table-wrap" id="expensesTableWrap"></div></div>
+      </div>
+    </section>
+
+    <!-- TEAM -->
+    <section data-panel="team" hidden>
+      <div class="section-head">
+        <div><h2>Team accounts</h2><p class="section-sub">Owner accounts see expenses and profit; staff accounts don't.</p></div>
+        <button class="btn primary" id="addTeamBtn" type="button">+ Add team member</button>
+      </div>
+      <div id="teamLockedBanner" class="card" hidden>
+        <div class="empty"><div class="glyph">🔒</div><h3>Owner access only</h3></div>
+      </div>
+      <div class="card" id="teamContent" hidden><div class="table-wrap" id="teamTableWrap"></div></div>
+    </section>
+  </main>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+<div id="modalRoot"></div>
+<script src="app.js"></script>
+</body>
+</html>

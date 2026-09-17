@@ -1,0 +1,14 @@
+{
+  "name": "tochi-event-dashboard",
+  "version": "1.0.0",
+  "description": "Operations dashboard for tochi.event — items, appointments, sales, expenses and profit, with owner/staff roles.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "seed": "node scripts/seed.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
