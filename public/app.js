@@ -16,6 +16,7 @@
   var overviewRange = "month";
   var apptFilters = { category: "", status: "" };
   var calState = { month: new Date(new Date().getFullYear(), new Date().getMonth(), 1), selected: null };
+  var breakdownRange = "month";
 
   // ---------------- utils ----------------
   function fmtMoney(n) {
@@ -42,6 +43,10 @@
     if (!dateStr) return false;
     var d = new Date(dateStr), now = new Date();
     return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }
+  function isThisYear(dateStr) {
+    if (!dateStr) return false;
+    return new Date(dateStr).getFullYear() === new Date().getFullYear();
   }
   function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -278,12 +283,13 @@
     var events = eventsInRange(overviewRange);
     var revenue = events.reduce(function (s, x) { return s + (Number(x.totalAmount) || 0); }, 0);
     var upcoming = state.appointments.filter(function (a) { return a.date >= todayStr() && a.status !== "cancelled" && a.status !== "completed"; }).length;
-    var lowStock = state.items.filter(function (i) { var q = Number(i.qtyTotal) || 0, r = Number(i.reorderLevel) || 2; return q <= r; }).length;
+    var today = todayStr();
+    var reservedToday = state.items.reduce(function (s, i) { return s + itemReservedQty(i.id, today, today); }, 0);
 
     var kpis = [
       { label: "Revenue (" + (overviewRange === "all" ? "all time" : "this month") + ")", value: fmtMoney(revenue), sub: events.length + " event" + (events.length === 1 ? "" : "s") },
       { label: "Upcoming appointments", value: String(upcoming), sub: state.appointments.length + " total on file" },
-      { label: "Items to reorder", value: String(lowStock), sub: state.items.length + " items tracked" },
+      { label: "Items reserved today", value: String(reservedToday), sub: state.items.length + " items tracked" },
     ];
     var html = kpis.map(function (k) {
       return '<div class="card kpi"><div class="label">' + escapeHtml(k.label) + '</div><div class="value">' + k.value + '</div><div class="sub">' + escapeHtml(k.sub) + "</div></div>";
@@ -377,17 +383,22 @@
     }, 0);
   }
 
-  function itemStatus(i) {
-    var q = Number(i.qtyTotal) || 0, r = Number(i.reorderLevel) || 2;
-    if (q <= 0) return { key: "out", label: "None owned" };
-    if (q <= r) return { key: "low", label: "Low stock" };
-    return { key: "instock", label: "In stock" };
+  // Item categories are the studio's own naming (e.g. "Chairs", "Lighting"),
+  // separate from event types — free text, suggested from what's already used.
+  function itemCategoryOptions() {
+    var seen = {}, list = [];
+    state.items.forEach(function (i) { if (i.category && !seen[i.category]) { seen[i.category] = true; list.push(i.category); } });
+    return list.sort();
   }
 
   function itemThumb(i) {
     return i.photo
       ? '<img src="' + i.photo + '" alt="" style="width:36px;height:36px;border-radius:8px;object-fit:cover;display:block">'
       : '<div style="width:36px;height:36px;border-radius:8px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:15px">📦</div>';
+  }
+
+  function itemCatPill(c) {
+    return c ? '<span class="pill" style="background:var(--surface-2);color:var(--text)">' + escapeHtml(c) + "</span>" : '<span class="section-sub">—</span>';
   }
 
   function renderItems() {
@@ -399,11 +410,10 @@
     }
     var today = todayStr();
     var rows = state.items.slice().sort(function (a, b) { return (a.name || "").localeCompare(b.name || ""); }).map(function (i) {
-      var st = itemStatus(i);
       var reservedToday = itemReservedQty(i.id, today, today);
-      return "<tr><td>" + itemThumb(i) + "</td><td>" + escapeHtml(i.name || "—") + "</td><td>" + catPill(i.category) + '</td><td class="num">' + (i.qtyTotal ?? 0) + '</td><td class="num">' + reservedToday + '</td><td><span class="pill status-' + st.key + '">' + st.label + '</span></td><td><div class="row-actions"><button class="icon-btn" data-edit="' + i.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + i.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
+      return "<tr><td>" + itemThumb(i) + "</td><td>" + escapeHtml(i.name || "—") + "</td><td>" + itemCatPill(i.category) + '</td><td class="num">' + (i.qtyTotal ?? 0) + '</td><td class="num">' + reservedToday + '</td><td><div class="row-actions"><button class="icon-btn" data-edit="' + i.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + i.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
     }).join("");
-    wrap.innerHTML = "<table><thead><tr><th></th><th>Item</th><th>Category</th><th>Total owned</th><th>Reserved today</th><th>Status</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
+    wrap.innerHTML = "<table><thead><tr><th></th><th>Item</th><th>Category</th><th>Total owned</th><th>Reserved today</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
     wrap.querySelectorAll("[data-edit]").forEach(function (b) { b.addEventListener("click", function () { openItemModal(state.items.find(function (x) { return x.id === b.dataset.edit; })); }); });
     wrap.querySelectorAll("[data-del]").forEach(function (b) { b.addEventListener("click", function () { confirmDelete("items", b.dataset.del, "item"); }); });
   }
@@ -428,17 +438,18 @@
 
   function openItemModal(item) {
     var isEdit = !!item;
-    item = item || { name: "", category: "wedding", qtyTotal: 1, reorderLevel: 2, notes: "", photo: null };
+    item = item || { name: "", category: "", qtyTotal: 1, notes: "", photo: null };
     var photoDraft = item.photo || null;
+    var catOptions = itemCategoryOptions().map(function (c) { return "<option value=\"" + escapeHtml(c) + "\">"; }).join("");
     var body = field("Item name", '<input type="text" id="f_name" value="' + escapeHtml(item.name) + '" placeholder="e.g. Gold Chiavari chairs">') +
-      field("Event type", categorySelect("f_category", item.category)) +
-      '<div class="field-grid">' + field("Total owned", '<input type="number" id="f_qtyTotal" min="0" value="' + (item.qtyTotal ?? 0) + '">') + field("Reorder / repair at", '<input type="number" id="f_reorderLevel" min="0" value="' + (item.reorderLevel ?? 2) + '">') + "</div>" +
+      field("Category", '<input type="text" id="f_category" list="itemCatList" value="' + escapeHtml(item.category || "") + '" placeholder="e.g. Chairs, Tableware, Lighting"><datalist id="itemCatList">' + catOptions + "</datalist>") +
+      field("Total owned", '<input type="number" id="f_qtyTotal" min="0" value="' + (item.qtyTotal ?? 0) + '">') +
       field("Notes", '<textarea id="f_notes">' + escapeHtml(item.notes || "") + "</textarea>") +
       '<div class="field"><label>Photo</label><div id="f_photoPreview"></div>' +
       '<div class="toolbar" style="margin-top:8px"><input type="file" id="f_photoFile" accept="image/*"></div></div>';
 
     openModal(isEdit ? "Edit item" : "Add item", body, async function () {
-      var data = { name: val("f_name"), category: val("f_category"), qtyTotal: Number(val("f_qtyTotal")) || 0, reorderLevel: Number(val("f_reorderLevel")) || 0, notes: val("f_notes"), photo: photoDraft };
+      var data = { name: val("f_name"), category: val("f_category"), qtyTotal: Number(val("f_qtyTotal")) || 0, notes: val("f_notes"), photo: photoDraft };
       if (!data.name) { toast("Give the item a name"); return false; }
       if (isEdit) await api("PUT", "/api/items/" + item.id, data); else await api("POST", "/api/items", data);
       await loadAll(); renderItems(); renderOverview(); toast("Saved");
@@ -520,8 +531,14 @@
     return { remaining: remaining, key: key, label: label };
   }
 
+  // Expenses routed straight to this event (not general/overhead costs).
+  function eventDirectExpenses(eventId) {
+    return state.expenses.filter(function (x) { return x.eventId === eventId; }).reduce(function (s, x) { return s + (Number(x.amount) || 0); }, 0);
+  }
+
   function renderEvents() {
     var wrap = document.getElementById("eventsTableWrap");
+    var isOwner = currentUser.role === "owner";
     if (state.events.length === 0) {
       wrap.innerHTML = '<div class="empty"><div class="glyph">🎉</div><h3>No events yet</h3><p>Add an event to start tracking revenue, payments and items used.</p><button class="btn primary sm" id="emptyAddEvent" type="button">+ Add event</button></div>';
       document.getElementById("emptyAddEvent").addEventListener("click", function () { openEventModal(null, null); });
@@ -529,9 +546,16 @@
     }
     var rows = state.events.map(function (e) {
       var pay = paymentInfo(e.totalAmount, e.paidAmount);
-      return "<tr><td class=\"mono\">" + escapeHtml(e.date || "—") + "</td><td>" + escapeHtml(e.clientName || "—") + "</td><td>" + catPill(e.category) + '</td><td class="num">' + fmtMoney(e.totalAmount) + '</td><td class="num">' + fmtMoney(e.paidAmount) + '</td><td class="num">' + fmtMoney(pay.remaining) + '</td><td><span class="pill status-' + pay.key + '">' + pay.label + '</span></td><td><div class="row-actions"><button class="icon-btn" data-edit="' + e.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + e.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
+      var profitCell = "";
+      if (isOwner) {
+        var direct = eventDirectExpenses(e.id);
+        var profit = (Number(e.totalAmount) || 0) - direct;
+        profitCell = '<td class="num">' + fmtMoney(direct) + '</td><td class="num" style="color:' + (profit >= 0 ? "var(--success)" : "var(--danger)") + '">' + fmtMoney(profit) + "</td>";
+      }
+      return "<tr><td class=\"mono\">" + escapeHtml(e.date || "—") + "</td><td>" + escapeHtml(e.clientName || "—") + "</td><td>" + catPill(e.category) + '</td><td class="num">' + fmtMoney(e.totalAmount) + '</td><td class="num">' + fmtMoney(e.paidAmount) + '</td><td class="num">' + fmtMoney(pay.remaining) + '</td><td><span class="pill status-' + pay.key + '">' + pay.label + "</span></td>" + profitCell + '<td><div class="row-actions"><button class="icon-btn" data-edit="' + e.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + e.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
     }).join("");
-    wrap.innerHTML = "<table><thead><tr><th>Date</th><th>Client</th><th>Type</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Status</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
+    var profitHead = isOwner ? "<th>Expenses</th><th>Profit</th>" : "";
+    wrap.innerHTML = "<table><thead><tr><th>Date</th><th>Client</th><th>Type</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Status</th>" + profitHead + "<th></th></tr></thead><tbody>" + rows + "</tbody></table>";
     wrap.querySelectorAll("[data-edit]").forEach(function (b) { b.addEventListener("click", function () { openEventModal(state.events.find(function (x) { return x.id === b.dataset.edit; }), null); }); });
     wrap.querySelectorAll("[data-del]").forEach(function (b) { b.addEventListener("click", function () { confirmDelete("events", b.dataset.del, "event"); }); });
   }
@@ -563,12 +587,19 @@
       return Math.max(0, totalOwned - reservedByOthers - alreadyInThisEvent);
     }
 
+    function itemAvailabilityLabel(avail, totalOwned) {
+      totalOwned = Number(totalOwned) || 0;
+      if (avail <= 0) return " — Reserved";
+      if (avail < totalOwned) return " — " + avail + " available (" + (totalOwned - avail) + " reserved)";
+      return " — " + avail + " available";
+    }
+
     function itemPickerHtml() {
       if (!state.items.length) return '<p class="section-sub" style="margin:6px 0 0">Add items in the Items tab first.</p>';
       var range = reserveRange();
       var options = state.items.map(function (i) {
         var avail = itemAvailability(i.id, range.from, range.until);
-        return '<option value="' + i.id + '">' + escapeHtml(i.name) + " — " + avail + " available</option>";
+        return '<option value="' + i.id + '">' + escapeHtml(i.name) + itemAvailabilityLabel(avail, i.qtyTotal) + "</option>";
       }).join("");
       return '<div class="toolbar" style="margin-top:8px"><select id="f_itemPick">' + options + '</select><input type="number" id="f_itemQty" min="1" value="1" style="width:70px"><button class="btn sm" type="button" id="f_itemAdd">+ Add</button></div>';
     }
@@ -625,7 +656,7 @@
         if (!item) return;
         var range = reserveRange();
         var avail = itemAvailability(itemId, range.from, range.until);
-        if (qty > avail) { toast(avail > 0 ? ("Only " + avail + " available for this date range") : "None available for this date range"); return; }
+        if (qty > avail) { toast(avail > 0 ? ("Only " + avail + " available for this date range") : "Reserved for this date range"); return; }
         itemsDraft.push({ itemId: itemId, name: item.name, qty: qty });
         refreshItemsList();
         refreshItemPicker();
@@ -671,57 +702,87 @@
       return;
     }
     var rows = state.expenses.map(function (e) {
-      return "<tr><td class=\"mono\">" + escapeHtml(e.date || "—") + "</td><td>" + escapeHtml(e.category || "Other") + "</td><td>" + escapeHtml(eventLabel(e.eventId)) + '</td><td class="num">' + fmtMoney(e.amount) + "</td><td>" + escapeHtml(e.notes || "—") + '</td><td><div class="row-actions"><button class="icon-btn" data-edit="' + e.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + e.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
+      return "<tr><td class=\"mono\">" + escapeHtml(e.date || "—") + "</td><td>" + escapeHtml(e.name || "—") + "</td><td>" + escapeHtml(e.category || "Other") + "</td><td>" + escapeHtml(eventLabel(e.eventId)) + '</td><td class="num">' + fmtMoney(e.amount) + '</td><td><div class="row-actions"><button class="icon-btn" data-edit="' + e.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + e.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
     }).join("");
-    wrap.innerHTML = "<table><thead><tr><th>Date</th><th>Category</th><th>Event</th><th>Amount</th><th>Notes</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
+    wrap.innerHTML = "<table><thead><tr><th>Date</th><th>Name</th><th>Category</th><th>Event</th><th>Amount</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
     wrap.querySelectorAll("[data-edit]").forEach(function (b) { b.addEventListener("click", function () { openExpenseModal(state.expenses.find(function (x) { return x.id === b.dataset.edit; })); }); });
     wrap.querySelectorAll("[data-del]").forEach(function (b) { b.addEventListener("click", function () { confirmDelete("expenses", b.dataset.del, "expense"); }); });
   }
 
   function renderMonthlyBreakdown() {
     var el = document.getElementById("monthlyBreakdown");
-    var monthEvents = state.events.filter(function (e) { return isThisMonth(e.date); });
-    var monthExpenses = state.expenses.filter(function (x) { return isThisMonth(x.date); });
+    var rangeLabels = { month: "This month", year: "This year", all: "All time" };
+    var inRange = breakdownRange === "all" ? function () { return true; } : breakdownRange === "year" ? isThisYear : isThisMonth;
+    var rangeEvents = state.events.filter(function (e) { return inRange(e.date); });
+    var rangeExpenses = state.expenses.filter(function (x) { return inRange(x.date); });
 
-    var eventRows = monthEvents.map(function (e) {
-      var direct = monthExpenses.filter(function (x) { return x.eventId === e.id; }).reduce(function (s, x) { return s + (Number(x.amount) || 0); }, 0);
+    var eventRows = rangeEvents.map(function (e) {
+      var direct = rangeExpenses.filter(function (x) { return x.eventId === e.id; }).reduce(function (s, x) { return s + (Number(x.amount) || 0); }, 0);
       return { e: e, direct: direct, profit: (Number(e.totalAmount) || 0) - direct };
     });
-    var overheadTotal = monthExpenses.filter(function (x) { return !x.eventId; }).reduce(function (s, x) { return s + (Number(x.amount) || 0); }, 0);
+    var overheadTotal = rangeExpenses.filter(function (x) { return !x.eventId; }).reduce(function (s, x) { return s + (Number(x.amount) || 0); }, 0);
     var eventProfitSum = eventRows.reduce(function (s, r) { return s + r.profit; }, 0);
     var netProfit = eventProfitSum - overheadTotal;
 
-    if (monthEvents.length === 0 && overheadTotal === 0) {
-      el.innerHTML = '<div class="section-head" style="padding:16px 16px 0"><h2 style="font-size:15px">This month: event profit vs. overhead</h2></div>' +
-        '<div class="empty" style="padding:24px"><div class="glyph">🧾</div><p>No events or expenses logged this month yet.</p></div>';
-      return;
+    var headHtml = '<div class="section-head" style="padding:16px 16px 0"><h2 style="font-size:15px">' + rangeLabels[breakdownRange] + ': event profit vs. overhead</h2>' +
+      '<div class="range-toggle" id="breakdownRangeToggle">' +
+        '<button type="button" data-range="month" class="' + (breakdownRange === "month" ? "active" : "") + '">Month</button>' +
+        '<button type="button" data-range="year" class="' + (breakdownRange === "year" ? "active" : "") + '">Year</button>' +
+        '<button type="button" data-range="all" class="' + (breakdownRange === "all" ? "active" : "") + '">All time</button>' +
+      "</div></div>";
+
+    if (rangeEvents.length === 0 && overheadTotal === 0) {
+      el.innerHTML = headHtml + '<div class="empty" style="padding:24px"><div class="glyph">🧾</div><p>No events or expenses logged for this range yet.</p></div>';
+    } else {
+      var rowsHtml = eventRows.map(function (r) {
+        return "<tr><td>" + escapeHtml(r.e.clientName || "—") + " " + catPill(r.e.category) + '</td><td class="num">' + fmtMoney(r.e.totalAmount) + '</td><td class="num">' + fmtMoney(r.direct) + '</td><td class="num" style="color:' + (r.profit >= 0 ? "var(--success)" : "var(--danger)") + '">' + fmtMoney(r.profit) + "</td></tr>";
+      }).join("");
+      el.innerHTML = headHtml +
+        '<div class="table-wrap" style="padding:8px 16px 0"><table><thead><tr><th>Event</th><th>Revenue</th><th>Direct expenses</th><th>Event profit</th></tr></thead><tbody>' +
+        (rowsHtml || '<tr><td colspan="4" class="section-sub">No events in this range.</td></tr>') + "</tbody></table></div>" +
+        '<div style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:4px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:13.5px"><span class="section-sub">Sum of event profits</span><span class="mono">' + fmtMoney(eventProfitSum) + '</span></div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:13.5px"><span class="section-sub">− Overhead expenses (rent, marketing, etc.)</span><span class="mono">' + fmtMoney(overheadTotal) + '</span></div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;border-top:1px solid var(--border);padding-top:6px;margin-top:2px"><span>Net profit — ' + rangeLabels[breakdownRange].toLowerCase() + '</span><span class="mono" style="color:' + (netProfit >= 0 ? "var(--success)" : "var(--danger)") + '">' + fmtMoney(netProfit) + "</span></div>" +
+        "</div>";
     }
-    var rowsHtml = eventRows.map(function (r) {
-      return "<tr><td>" + escapeHtml(r.e.clientName || "—") + " " + catPill(r.e.category) + '</td><td class="num">' + fmtMoney(r.e.totalAmount) + '</td><td class="num">' + fmtMoney(r.direct) + '</td><td class="num" style="color:' + (r.profit >= 0 ? "var(--success)" : "var(--danger)") + '">' + fmtMoney(r.profit) + "</td></tr>";
-    }).join("");
-    el.innerHTML =
-      '<div class="section-head" style="padding:16px 16px 0"><h2 style="font-size:15px">This month: event profit vs. overhead</h2></div>' +
-      '<div class="table-wrap" style="padding:8px 16px 0"><table><thead><tr><th>Event</th><th>Revenue</th><th>Direct expenses</th><th>Event profit</th></tr></thead><tbody>' +
-      (rowsHtml || '<tr><td colspan="4" class="section-sub">No events this month.</td></tr>') + "</tbody></table></div>" +
-      '<div style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:4px">' +
-        '<div style="display:flex;justify-content:space-between;font-size:13.5px"><span class="section-sub">Sum of event profits</span><span class="mono">' + fmtMoney(eventProfitSum) + '</span></div>' +
-        '<div style="display:flex;justify-content:space-between;font-size:13.5px"><span class="section-sub">− Overhead expenses (rent, marketing, etc.)</span><span class="mono">' + fmtMoney(overheadTotal) + '</span></div>' +
-        '<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;border-top:1px solid var(--border);padding-top:6px;margin-top:2px"><span>Net profit this month</span><span class="mono" style="color:' + (netProfit >= 0 ? "var(--success)" : "var(--danger)") + '">' + fmtMoney(netProfit) + "</span></div>" +
-      "</div>";
+    document.getElementById("breakdownRangeToggle").addEventListener("click", function (e) {
+      var btn = e.target.closest("button[data-range]");
+      if (!btn) return;
+      breakdownRange = btn.dataset.range;
+      renderMonthlyBreakdown();
+    });
   }
 
   function openExpenseModal(exp) {
     var isEdit = !!exp;
-    exp = exp || { date: todayStr(), category: EXPENSE_CATEGORIES[0], amount: 0, notes: "", eventId: "" };
-    var eventOptions = '<option value="">General (monthly overhead)</option>' + state.events.map(function (e) { return '<option value="' + e.id + '" ' + (exp.eventId === e.id ? "selected" : "") + ">" + escapeHtml(e.clientName || "Event") + " · " + escapeHtml(e.date || "") + "</option>"; }).join("");
-    var body = '<div class="field-grid">' + field("Date", '<input type="date" id="f_date" value="' + escapeHtml(exp.date || todayStr()) + '">') + field("Amount", '<input type="number" id="f_amount" min="0" value="' + (exp.amount ?? 0) + '">') + "</div>" +
+    exp = exp || { name: "", date: todayStr(), category: EXPENSE_CATEGORIES[0], amount: 0, notes: "", eventId: "" };
+    var isGeneral = !exp.eventId;
+    var eventOptions = state.events.map(function (e) { return '<option value="' + e.id + '" ' + (exp.eventId === e.id ? "selected" : "") + ">" + escapeHtml(e.clientName || "Event") + " · " + escapeHtml(e.date || "") + "</option>"; }).join("");
+    var body = field("Expense name", '<input type="text" id="f_name" value="' + escapeHtml(exp.name || "") + '" placeholder="e.g. Truck rental, Office rent">') +
+      '<div class="field"><label>Type</label><div class="range-toggle" id="f_expType"><button type="button" data-type="event" class="' + (isGeneral ? "" : "active") + '">Event expense</button><button type="button" data-type="general" class="' + (isGeneral ? "active" : "") + '">General (overhead)</button></div></div>' +
+      '<div class="field" id="f_eventWrap"' + (isGeneral ? " hidden" : "") + ">" + field("Which event", '<select id="f_eventId">' + eventOptions + "</select>") + "</div>" +
+      '<div class="field-grid">' + field("Date", '<input type="date" id="f_date" value="' + escapeHtml(exp.date || todayStr()) + '">') + field("Amount", '<input type="number" id="f_amount" min="0" value="' + (exp.amount ?? 0) + '">') + "</div>" +
       field("Category", '<select id="f_category">' + EXPENSE_CATEGORIES.map(function (c) { return '<option value="' + escapeHtml(c) + '" ' + (exp.category === c ? "selected" : "") + ">" + escapeHtml(c) + "</option>"; }).join("") + "</select>") +
-      field("Route to event", '<select id="f_eventId">' + eventOptions + "</select>") +
       field("Notes", '<textarea id="f_notes">' + escapeHtml(exp.notes || "") + "</textarea>");
     openModal(isEdit ? "Edit expense" : "Add expense", body, async function () {
-      var data = { date: val("f_date"), category: val("f_category"), amount: Number(val("f_amount")) || 0, notes: val("f_notes"), eventId: val("f_eventId") || null };
+      var type = document.getElementById("f_expType").querySelector(".active").dataset.type;
+      var eventId = type === "event" ? val("f_eventId") : null;
+      if (type === "event" && !eventId) { toast("Pick which event this expense belongs to"); return false; }
+      var data = { name: val("f_name"), date: val("f_date"), category: val("f_category"), amount: Number(val("f_amount")) || 0, notes: val("f_notes"), eventId: eventId };
+      if (!data.name) { toast("Give the expense a name"); return false; }
       if (isEdit) await api("PUT", "/api/expenses/" + exp.id, data); else await api("POST", "/api/expenses", data);
-      await loadAll(); renderExpenses(); renderOverview(); toast("Saved");
+      await loadAll(); renderExpenses(); renderOverview(); renderEvents(); toast("Saved");
+    });
+
+    if (!state.events.length) {
+      document.getElementById("f_eventWrap").innerHTML = '<p class="section-sub" style="margin:0">No events yet — add one first, or keep this as a general expense.</p>';
+    }
+    document.getElementById("f_expType").addEventListener("click", function (e) {
+      var btn = e.target.closest("button[data-type]");
+      if (!btn) return;
+      document.querySelectorAll("#f_expType button").forEach(function (b) { b.classList.toggle("active", b === btn); });
+      document.getElementById("f_eventWrap").hidden = btn.dataset.type !== "event";
     });
   }
 
