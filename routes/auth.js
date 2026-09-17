@@ -24,6 +24,23 @@ router.post("/login", async (req, res) => {
   res.json({ token, user: publicUser(user) });
 });
 
+// POST /api/auth/bootstrap  { name, email, password }
+// Creates the first owner account when the database has no users yet.
+// Lets a freshly deployed instance be set up over HTTPS without shell
+// access; it's permanently a no-op once any account exists.
+router.post("/bootstrap", async (req, res) => {
+  if (users.list().length > 0) {
+    return res.status(403).json({ error: "Already set up — sign in instead." });
+  }
+  const { name, email, password } = req.body || {};
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: "Name, email and password are required." });
+  }
+  const passwordHash = hashPassword(password);
+  const user = await users.create({ name, email, passwordHash, role: "owner" });
+  res.status(201).json({ user: publicUser(user) });
+});
+
 // GET /api/auth/me
 router.get("/me", requireAuth, (req, res) => {
   const user = users.get(req.user.id);
