@@ -660,15 +660,22 @@
       return '<div class="toolbar" style="margin-top:8px"><select id="f_itemPick">' + options + '</select><input type="number" id="f_itemQty" min="1" value="1" style="width:70px"><button class="btn sm" type="button" id="f_itemAdd">+ Add</button></div>';
     }
 
-    var body = '<div class="field-grid">' + field("Client name", '<input type="text" id="f_clientName" value="' + escapeHtml(evt.clientName) + '">') + field("Phone", '<input type="tel" id="f_phone" value="' + escapeHtml(evt.phone || "") + '">') + "</div>" +
-      field("Event type", categorySelect("f_category", evt.category)) +
-      '<div class="field-grid">' + field("Date", '<input type="date" id="f_date" value="' + escapeHtml(evt.date || todayStr()) + '">') + field("Time", '<input type="time" id="f_time" value="' + escapeHtml(evt.time || "") + '">') + "</div>" +
-      '<div class="field-grid">' + field("Location", '<input type="text" id="f_location" value="' + escapeHtml(evt.location || "") + '">') + field("Guest count", '<input type="number" id="f_guestCount" min="0" value="' + escapeHtml(evt.guestCount || "") + '">') + "</div>" +
-      '<div class="field-grid">' + field("Total amount", '<input type="number" id="f_totalAmount" min="0" value="' + (evt.totalAmount ?? 0) + '">') + field("Paid so far", '<input type="number" id="f_paidAmount" min="0" value="' + (evt.paidAmount ?? 0) + '">') + "</div>" +
-      '<p class="section-sub" id="f_remaining" style="margin:0"></p>' +
-      field("Notes", '<textarea id="f_notes">' + escapeHtml(evt.notes || "") + "</textarea>") +
-      '<div class="field"><label>Items needed from / until</label><p class="section-sub" style="margin:0 0 6px">Only widen this if items go out for setup before the event or come back after teardown — otherwise leave it matching the event date.</p><div class="field-grid">' + field("From", '<input type="date" id="f_reserveFrom" value="' + escapeHtml(evt.reserveFrom || evt.date || todayStr()) + '">') + field("Until", '<input type="date" id="f_reserveUntil" value="' + escapeHtml(evt.reserveUntil || evt.reserveFrom || evt.date || todayStr()) + '">') + "</div></div>" +
-      '<div class="field"><label>Items reserved</label><div id="eventItemsList">' + itemsListHtml() + '</div><div id="eventItemPicker">' + itemPickerHtml() + "</div></div>";
+    var body =
+      '<div class="form-section"><div class="form-section-title">Client &amp; event</div>' +
+        '<div class="field-grid">' + field("Client name", '<input type="text" id="f_clientName" value="' + escapeHtml(evt.clientName) + '">') + field("Phone", '<input type="tel" id="f_phone" value="' + escapeHtml(evt.phone || "") + '">') + "</div>" +
+        field("Event type", categorySelect("f_category", evt.category)) +
+        '<div class="field-grid">' + field("Date", '<input type="date" id="f_date" value="' + escapeHtml(evt.date || todayStr()) + '">') + field("Time", '<input type="time" id="f_time" value="' + escapeHtml(evt.time || "") + '">') + "</div>" +
+        '<div class="field-grid">' + field("Location", '<input type="text" id="f_location" value="' + escapeHtml(evt.location || "") + '">') + field("Guest count", '<input type="number" id="f_guestCount" min="0" value="' + escapeHtml(evt.guestCount || "") + '">') + "</div>" +
+        field("Notes", '<textarea id="f_notes">' + escapeHtml(evt.notes || "") + "</textarea>") +
+      "</div>" +
+      '<div class="form-section"><div class="form-section-title">Payment</div>' +
+        '<div class="field-grid">' + field("Total amount", '<input type="number" id="f_totalAmount" min="0" value="' + (evt.totalAmount ?? 0) + '">') + field("Paid so far", '<input type="number" id="f_paidAmount" min="0" value="' + (evt.paidAmount ?? 0) + '">') + "</div>" +
+        '<p class="section-sub" id="f_remaining" style="margin:0"></p>' +
+      "</div>" +
+      '<div class="form-section"><div class="form-section-title">Items</div>' +
+        '<div class="field"><label>Items needed from / until</label><p class="section-sub" style="margin:0 0 6px">Only widen this if items go out for setup before the event or come back after teardown — otherwise leave it matching the event date.</p><div class="field-grid">' + field("From", '<input type="date" id="f_reserveFrom" value="' + escapeHtml(evt.reserveFrom || evt.date || todayStr()) + '">') + field("Until", '<input type="date" id="f_reserveUntil" value="' + escapeHtml(evt.reserveUntil || evt.reserveFrom || evt.date || todayStr()) + '">') + "</div></div>" +
+        '<div class="field"><label>Items reserved</label><div id="eventItemsList">' + itemsListHtml() + '</div><div id="eventItemPicker">' + itemPickerHtml() + "</div></div>" +
+      "</div>";
 
     openModal(isEdit ? "Edit event" : "Add event", body, async function () {
       var range = reserveRange();
