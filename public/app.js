@@ -15,6 +15,7 @@
   var state = { items: [], appointments: [], events: [], expenses: [], team: [] };
   var overviewRange = "month";
   var apptFilters = { category: "", status: "" };
+  var calState = { month: new Date(new Date().getFullYear(), new Date().getMonth(), 1), selected: null };
 
   // ---------------- utils ----------------
   function fmtMoney(n) {
@@ -135,6 +136,7 @@
     document.getElementById("teamLock").hidden = isOwner;
     document.getElementById("addExpenseBtn").hidden = !isOwner;
     document.getElementById("addTeamBtn").hidden = !isOwner;
+    document.getElementById("downloadBackupBtn").hidden = !isOwner;
 
     wireStaticUI();
     await loadAll();
@@ -162,7 +164,68 @@
   }
 
   function renderAll() {
-    renderOverview(); renderItems(); renderAppointments(); renderEvents(); renderExpenses(); renderTeam();
+    renderOverview(); renderCalendar(); renderItems(); renderAppointments(); renderEvents(); renderExpenses(); renderTeam();
+  }
+
+  // ---------------- CALENDAR ----------------
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  function renderCalendar() {
+    if (!calState.selected) calState.selected = todayStr();
+    renderCalGrid();
+    renderCalDayDetail();
+  }
+
+  function renderCalGrid() {
+    var year = calState.month.getFullYear(), month = calState.month.getMonth();
+    document.getElementById("calMonthLabel").textContent = calState.month.toLocaleString("en-US", { month: "long", year: "numeric" });
+    var firstWeekday = new Date(year, month, 1).getDay();
+    var daysInMonth = new Date(year, month + 1, 0).getDate();
+    var daysInPrevMonth = new Date(year, month, 0).getDate();
+    var cells = [];
+    for (var i = 0; i < firstWeekday; i++) cells.push({ day: daysInPrevMonth - firstWeekday + 1 + i, outside: true });
+    for (var d = 1; d <= daysInMonth; d++) cells.push({ day: d, outside: false, dateStr: year + "-" + pad2(month + 1) + "-" + pad2(d) });
+    var trailing = 1;
+    while (cells.length % 7 !== 0) cells.push({ day: trailing++, outside: true });
+
+    var dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    var today = todayStr();
+    var html = dow.map(function (d) { return '<div class="cal-dow">' + d + "</div>"; }).join("");
+    html += cells.map(function (c) {
+      if (c.outside) return '<div class="cal-day outside"><div class="cal-daynum">' + c.day + "</div></div>";
+      var dayEvents = state.events.filter(function (e) { return e.date === c.dateStr; });
+      var dayAppts = state.appointments.filter(function (a) { return a.date === c.dateStr; });
+      var dots = dayEvents.map(function (e) { return catColor(e.category); }).concat(dayAppts.map(function (a) { return catColor(a.category); }));
+      var shown = dots.slice(0, 4), extra = dots.length - shown.length;
+      var classes = "cal-day" + (c.dateStr === today ? " today" : "") + (c.dateStr === calState.selected ? " selected" : "");
+      return '<div class="' + classes + '" data-date="' + c.dateStr + '"><div class="cal-daynum">' + c.day + '</div><div class="cal-dots">' +
+        shown.map(function (col) { return '<span class="cal-dot" style="background:' + col + '"></span>'; }).join("") +
+        (extra > 0 ? '<span class="cal-more">+' + extra + "</span>" : "") + "</div></div>";
+    }).join("");
+    document.getElementById("calGrid").innerHTML = html;
+    document.getElementById("calGrid").querySelectorAll("[data-date]").forEach(function (el) {
+      el.addEventListener("click", function () { calState.selected = el.dataset.date; renderCalendar(); });
+    });
+  }
+
+  function renderCalDayDetail() {
+    var dateStr = calState.selected;
+    var label = new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    document.getElementById("calDayLabel").textContent = label + (dateStr === todayStr() ? " (Today)" : "");
+    var dayEvents = state.events.filter(function (e) { return e.date === dateStr; });
+    var dayAppts = state.appointments.filter(function (a) { return a.date === dateStr; });
+    var el = document.getElementById("calDayDetail");
+    if (!dayEvents.length && !dayAppts.length) { el.innerHTML = '<div class="empty"><div class="glyph">🗓️</div><p>Nothing scheduled this day.</p></div>'; return; }
+    var rows = [];
+    dayEvents.forEach(function (e) {
+      rows.push('<div class="day-item" data-open-event="' + e.id + '"><span class="ic">🎉</span><span style="flex:1">' + escapeHtml(e.clientName || "Client") + " · " + catLabel(e.category) + (e.location ? " · " + escapeHtml(e.location) : "") + '</span><span class="meta">' + escapeHtml(e.time || "") + "</span></div>");
+    });
+    dayAppts.forEach(function (a) {
+      rows.push('<div class="day-item" data-open-appt="' + a.id + '"><span class="ic">📅</span><span style="flex:1">' + escapeHtml(a.clientName || "Client") + " · " + catLabel(a.category) + " · " + labelStatus(a.status) + '</span><span class="meta">' + escapeHtml(a.time || "") + "</span></div>");
+    });
+    el.innerHTML = rows.join("");
+    el.querySelectorAll("[data-open-event]").forEach(function (b) { b.addEventListener("click", function () { openEventModal(state.events.find(function (x) { return x.id === b.dataset.openEvent; }), null); }); });
+    el.querySelectorAll("[data-open-appt]").forEach(function (b) { b.addEventListener("click", function () { openApptModal(state.appointments.find(function (x) { return x.id === b.dataset.openAppt; })); }); });
   }
 
   // ---------------- tabs & static UI ----------------
@@ -184,6 +247,12 @@
       renderOverview();
     });
 
+    document.getElementById("calPrev").addEventListener("click", function () { calState.month = new Date(calState.month.getFullYear(), calState.month.getMonth() - 1, 1); renderCalGrid(); });
+    document.getElementById("calNext").addEventListener("click", function () { calState.month = new Date(calState.month.getFullYear(), calState.month.getMonth() + 1, 1); renderCalGrid(); });
+    document.getElementById("calToday").addEventListener("click", function () {
+      var n = new Date(); calState.month = new Date(n.getFullYear(), n.getMonth(), 1); calState.selected = todayStr(); renderCalendar();
+    });
+
     var catSelect = document.getElementById("apptCategoryFilter");
     Object.keys(CATEGORIES).forEach(function (k) {
       var o = document.createElement("option"); o.value = k; o.textContent = CATEGORIES[k].label;
@@ -197,6 +266,7 @@
     document.getElementById("addEventBtn").addEventListener("click", function () { openEventModal(null, null); });
     document.getElementById("addExpenseBtn").addEventListener("click", function () { openExpenseModal(null); });
     document.getElementById("addTeamBtn").addEventListener("click", function () { openTeamModal(); });
+    document.getElementById("downloadBackupBtn").addEventListener("click", downloadBackup);
   }
 
   // ---------------- OVERVIEW ----------------
@@ -290,12 +360,18 @@
 
   // ---------------- ITEMS ----------------
   // Items are the studio's own décor/furniture assets, not sold — "available"
-  // is computed per date from what other events have already reserved.
-  function itemReservedQty(itemId, date, excludeEventId) {
-    if (!date) return 0;
+  // is computed per date range (setup through teardown) from what other
+  // events have already reserved.
+  function rangesOverlap(aStart, aEnd, bStart, bEnd) {
+    return aStart <= bEnd && bStart <= aEnd;
+  }
+  function itemReservedQty(itemId, rangeStart, rangeEnd, excludeEventId) {
+    if (!rangeStart) return 0;
+    rangeEnd = rangeEnd || rangeStart;
     return state.events.reduce(function (sum, e) {
       if (excludeEventId && e.id === excludeEventId) return sum;
-      if (e.date !== date) return sum;
+      var s = e.reserveFrom || e.date, en = e.reserveUntil || e.date;
+      if (!s || !rangesOverlap(rangeStart, rangeEnd, s, en)) return sum;
       var found = (e.items || []).find(function (it) { return it.itemId === itemId; });
       return sum + (found ? Number(found.qty) || 0 : 0);
     }, 0);
@@ -324,7 +400,7 @@
     var today = todayStr();
     var rows = state.items.slice().sort(function (a, b) { return (a.name || "").localeCompare(b.name || ""); }).map(function (i) {
       var st = itemStatus(i);
-      var reservedToday = itemReservedQty(i.id, today);
+      var reservedToday = itemReservedQty(i.id, today, today);
       return "<tr><td>" + itemThumb(i) + "</td><td>" + escapeHtml(i.name || "—") + "</td><td>" + catPill(i.category) + '</td><td class="num">' + (i.qtyTotal ?? 0) + '</td><td class="num">' + reservedToday + '</td><td><span class="pill status-' + st.key + '">' + st.label + '</span></td><td><div class="row-actions"><button class="icon-btn" data-edit="' + i.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + i.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
     }).join("");
     wrap.innerHTML = "<table><thead><tr><th></th><th>Item</th><th>Category</th><th>Total owned</th><th>Reserved today</th><th>Status</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
@@ -424,11 +500,11 @@
       var prevStatus = appt.status;
       var saved;
       if (isEdit) saved = (await api("PUT", "/api/appointments/" + appt.id, data)).item; else saved = (await api("POST", "/api/appointments", data)).item;
-      await loadAll(); renderAppointments(); renderOverview(); toast("Saved");
+      await loadAll(); renderAppointments(); renderOverview(); renderCalendar(); toast("Saved");
       if (data.status === "completed" && prevStatus !== "completed") {
         setTimeout(function () {
           if (confirm("Mark as completed — log an event for this booking now?")) {
-            openEventModal(null, { clientName: data.clientName, category: data.category, totalAmount: data.quotedAmount, appointmentId: saved.id });
+            openEventModal(null, { clientName: data.clientName, phone: data.phone, category: data.category, date: data.date, time: data.time, location: data.location, guestCount: data.guestCount, totalAmount: data.quotedAmount, appointmentId: saved.id });
           }
         }, 250);
       }
@@ -462,7 +538,7 @@
 
   function openEventModal(evt, prefill) {
     var isEdit = !!evt;
-    evt = evt || Object.assign({ clientName: "", phone: "", category: "wedding", date: todayStr(), totalAmount: 0, paidAmount: 0, notes: "", appointmentId: null, items: [] }, prefill || {});
+    evt = evt || Object.assign({ clientName: "", phone: "", category: "wedding", date: todayStr(), time: "", location: "", guestCount: "", totalAmount: 0, paidAmount: 0, notes: "", appointmentId: null, items: [], reserveFrom: "", reserveUntil: "" }, prefill || {});
     var itemsDraft = (evt.items || []).slice();
 
     function itemsListHtml() {
@@ -473,18 +549,25 @@
         }).join("") + "</tbody></table></div>";
     }
 
-    function itemAvailability(itemId, date) {
+    function reserveRange() {
+      var from = val("f_reserveFrom") || val("f_date") || evt.date || todayStr();
+      var until = val("f_reserveUntil") || from;
+      if (until < from) until = from;
+      return { from: from, until: until };
+    }
+
+    function itemAvailability(itemId, from, until) {
       var totalOwned = (state.items.find(function (i) { return i.id === itemId; }) || {}).qtyTotal || 0;
-      var reservedByOthers = itemReservedQty(itemId, date, isEdit ? evt.id : null);
+      var reservedByOthers = itemReservedQty(itemId, from, until, isEdit ? evt.id : null);
       var alreadyInThisEvent = itemsDraft.filter(function (it) { return it.itemId === itemId; }).reduce(function (s, it) { return s + (Number(it.qty) || 0); }, 0);
       return Math.max(0, totalOwned - reservedByOthers - alreadyInThisEvent);
     }
 
     function itemPickerHtml() {
       if (!state.items.length) return '<p class="section-sub" style="margin:6px 0 0">Add items in the Items tab first.</p>';
-      var date = val("f_date") || evt.date || todayStr();
+      var range = reserveRange();
       var options = state.items.map(function (i) {
-        var avail = itemAvailability(i.id, date);
+        var avail = itemAvailability(i.id, range.from, range.until);
         return '<option value="' + i.id + '">' + escapeHtml(i.name) + " — " + avail + " available</option>";
       }).join("");
       return '<div class="toolbar" style="margin-top:8px"><select id="f_itemPick">' + options + '</select><input type="number" id="f_itemQty" min="1" value="1" style="width:70px"><button class="btn sm" type="button" id="f_itemAdd">+ Add</button></div>';
@@ -492,21 +575,26 @@
 
     var body = '<div class="field-grid">' + field("Client name", '<input type="text" id="f_clientName" value="' + escapeHtml(evt.clientName) + '">') + field("Phone", '<input type="tel" id="f_phone" value="' + escapeHtml(evt.phone || "") + '">') + "</div>" +
       field("Event type", categorySelect("f_category", evt.category)) +
-      field("Date", '<input type="date" id="f_date" value="' + escapeHtml(evt.date || todayStr()) + '">') +
+      '<div class="field-grid">' + field("Date", '<input type="date" id="f_date" value="' + escapeHtml(evt.date || todayStr()) + '">') + field("Time", '<input type="time" id="f_time" value="' + escapeHtml(evt.time || "") + '">') + "</div>" +
+      '<div class="field-grid">' + field("Location", '<input type="text" id="f_location" value="' + escapeHtml(evt.location || "") + '">') + field("Guest count", '<input type="number" id="f_guestCount" min="0" value="' + escapeHtml(evt.guestCount || "") + '">') + "</div>" +
       '<div class="field-grid">' + field("Total amount", '<input type="number" id="f_totalAmount" min="0" value="' + (evt.totalAmount ?? 0) + '">') + field("Paid so far", '<input type="number" id="f_paidAmount" min="0" value="' + (evt.paidAmount ?? 0) + '">') + "</div>" +
       '<p class="section-sub" id="f_remaining" style="margin:0"></p>' +
       field("Notes", '<textarea id="f_notes">' + escapeHtml(evt.notes || "") + "</textarea>") +
-      '<div class="field"><label>Items reserved for this date</label><div id="eventItemsList">' + itemsListHtml() + '</div><div id="eventItemPicker">' + itemPickerHtml() + "</div></div>";
+      '<div class="field"><label>Items needed from / until</label><p class="section-sub" style="margin:0 0 6px">Only widen this if items go out for setup before the event or come back after teardown — otherwise leave it matching the event date.</p><div class="field-grid">' + field("From", '<input type="date" id="f_reserveFrom" value="' + escapeHtml(evt.reserveFrom || evt.date || todayStr()) + '">') + field("Until", '<input type="date" id="f_reserveUntil" value="' + escapeHtml(evt.reserveUntil || evt.reserveFrom || evt.date || todayStr()) + '">') + "</div></div>" +
+      '<div class="field"><label>Items reserved</label><div id="eventItemsList">' + itemsListHtml() + '</div><div id="eventItemPicker">' + itemPickerHtml() + "</div></div>";
 
     openModal(isEdit ? "Edit event" : "Add event", body, async function () {
+      var range = reserveRange();
       var data = {
         clientName: val("f_clientName"), phone: val("f_phone"), category: val("f_category"), date: val("f_date"),
+        time: val("f_time"), location: val("f_location"), guestCount: val("f_guestCount"),
         totalAmount: Number(val("f_totalAmount")) || 0, paidAmount: Number(val("f_paidAmount")) || 0,
         notes: val("f_notes"), appointmentId: evt.appointmentId || null, items: itemsDraft,
+        reserveFrom: range.from, reserveUntil: range.until,
       };
       if (!data.clientName) { toast("Add a client name"); return false; }
       if (isEdit) await api("PUT", "/api/events/" + evt.id, data); else await api("POST", "/api/events", data);
-      await loadAll(); renderEvents(); renderOverview(); renderExpenses(); renderItems(); toast("Saved");
+      await loadAll(); renderEvents(); renderOverview(); renderExpenses(); renderItems(); renderCalendar(); toast("Saved");
     });
 
     function updateRemaining() {
@@ -535,15 +623,21 @@
         var itemId = val("f_itemPick"); var qty = Number(val("f_itemQty")) || 1;
         var item = state.items.find(function (i) { return i.id === itemId; });
         if (!item) return;
-        var avail = itemAvailability(itemId, val("f_date") || todayStr());
-        if (qty > avail) { toast(avail > 0 ? ("Only " + avail + " available on this date") : "None available on this date"); return; }
+        var range = reserveRange();
+        var avail = itemAvailability(itemId, range.from, range.until);
+        if (qty > avail) { toast(avail > 0 ? ("Only " + avail + " available for this date range") : "None available for this date range"); return; }
         itemsDraft.push({ itemId: itemId, name: item.name, qty: qty });
         refreshItemsList();
         refreshItemPicker();
       });
     }
+    document.getElementById("f_date").addEventListener("change", function () {
+      if (!isEdit) { document.getElementById("f_reserveFrom").value = val("f_date"); document.getElementById("f_reserveUntil").value = val("f_date"); }
+      refreshItemPicker();
+    });
+    document.getElementById("f_reserveFrom").addEventListener("change", refreshItemPicker);
+    document.getElementById("f_reserveUntil").addEventListener("change", refreshItemPicker);
     wireItemPicker();
-    document.getElementById("f_date").addEventListener("change", refreshItemPicker);
   }
 
   // ---------------- EXPENSES ----------------
@@ -632,6 +726,21 @@
   }
 
   // ---------------- TEAM ----------------
+  async function downloadBackup() {
+    try {
+      var res = await fetch("/api/backup", { headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) { toast("Couldn't download backup."); return; }
+      var blob = await res.blob();
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = "tochi-event-backup-" + todayStr() + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast("Couldn't download backup.");
+    }
+  }
+
   function renderTeam() {
     var isOwner = currentUser.role === "owner";
     document.getElementById("teamLockedBanner").hidden = isOwner;

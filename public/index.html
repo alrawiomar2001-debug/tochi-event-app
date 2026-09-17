@@ -59,6 +59,7 @@
     </div>
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="overview" type="button">Overview</button>
+      <button class="tab" data-tab="calendar" type="button">Calendar</button>
       <button class="tab" data-tab="items" type="button">Items</button>
       <button class="tab" data-tab="appointments" type="button">Appointments</button>
       <button class="tab" data-tab="events" type="button">Events</button>
@@ -93,6 +94,26 @@
       <div class="card">
         <div class="section-head" style="padding:16px 16px 0"><h2 style="font-size:15px">Recent activity</h2></div>
         <div class="activity-list" id="activityList" style="padding:4px 16px 16px"></div>
+      </div>
+    </section>
+
+    <!-- CALENDAR -->
+    <section data-panel="calendar" hidden>
+      <div class="section-head">
+        <div><h2>Calendar</h2><p class="section-sub">Appointments and events by day.</p></div>
+        <div class="toolbar">
+          <button class="btn sm" id="calPrev" type="button">‹</button>
+          <span id="calMonthLabel" style="font-weight:700;min-width:130px;text-align:center;display:inline-block"></span>
+          <button class="btn sm" id="calNext" type="button">›</button>
+          <button class="btn sm" id="calToday" type="button">Today</button>
+        </div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div class="cal-grid" id="calGrid"></div>
+      </div>
+      <div class="card">
+        <div class="section-head" style="padding:16px 16px 0"><h2 style="font-size:15px" id="calDayLabel">Today</h2></div>
+        <div id="calDayDetail" style="padding:4px 16px 16px"></div>
       </div>
     </section>
 
@@ -155,7 +176,10 @@
     <section data-panel="team" hidden>
       <div class="section-head">
         <div><h2>Team accounts</h2><p class="section-sub">Owner accounts see expenses and profit; staff accounts don't.</p></div>
-        <button class="btn primary" id="addTeamBtn" type="button">+ Add team member</button>
+        <div class="toolbar">
+          <button class="btn sm" id="downloadBackupBtn" type="button">⬇ Download backup</button>
+          <button class="btn primary" id="addTeamBtn" type="button">+ Add team member</button>
+        </div>
       </div>
       <div id="teamLockedBanner" class="card" hidden>
         <div class="empty"><div class="glyph">🔒</div><h3>Owner access only</h3></div>
