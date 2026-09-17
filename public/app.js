@@ -208,7 +208,7 @@
     var events = eventsInRange(overviewRange);
     var revenue = events.reduce(function (s, x) { return s + (Number(x.totalAmount) || 0); }, 0);
     var upcoming = state.appointments.filter(function (a) { return a.date >= todayStr() && a.status !== "cancelled" && a.status !== "completed"; }).length;
-    var lowStock = state.items.filter(function (i) { var q = Number(i.qtyAvailable) || 0, r = Number(i.reorderLevel) || 2; return q <= r; }).length;
+    var lowStock = state.items.filter(function (i) { var q = Number(i.qtyTotal) || 0, r = Number(i.reorderLevel) || 2; return q <= r; }).length;
 
     var kpis = [
       { label: "Revenue (" + (overviewRange === "all" ? "all time" : "this month") + ")", value: fmtMoney(revenue), sub: events.length + " event" + (events.length === 1 ? "" : "s") },
@@ -289,41 +289,98 @@
   }
 
   // ---------------- ITEMS ----------------
+  // Items are the studio's own décor/furniture assets, not sold — "available"
+  // is computed per date from what other events have already reserved.
+  function itemReservedQty(itemId, date, excludeEventId) {
+    if (!date) return 0;
+    return state.events.reduce(function (sum, e) {
+      if (excludeEventId && e.id === excludeEventId) return sum;
+      if (e.date !== date) return sum;
+      var found = (e.items || []).find(function (it) { return it.itemId === itemId; });
+      return sum + (found ? Number(found.qty) || 0 : 0);
+    }, 0);
+  }
+
   function itemStatus(i) {
-    var q = Number(i.qtyAvailable) || 0, r = Number(i.reorderLevel) || 2;
-    if (q <= 0) return { key: "out", label: "Out of stock" };
+    var q = Number(i.qtyTotal) || 0, r = Number(i.reorderLevel) || 2;
+    if (q <= 0) return { key: "out", label: "None owned" };
     if (q <= r) return { key: "low", label: "Low stock" };
     return { key: "instock", label: "In stock" };
+  }
+
+  function itemThumb(i) {
+    return i.photo
+      ? '<img src="' + i.photo + '" alt="" style="width:36px;height:36px;border-radius:8px;object-fit:cover;display:block">'
+      : '<div style="width:36px;height:36px;border-radius:8px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:15px">📦</div>';
   }
 
   function renderItems() {
     var wrap = document.getElementById("itemsTableWrap");
     if (state.items.length === 0) {
-      wrap.innerHTML = '<div class="empty"><div class="glyph">📦</div><h3>No items yet</h3><p>Add décor, furniture or supplies to start tracking stock.</p><button class="btn primary sm" id="emptyAddItem" type="button">+ Add item</button></div>';
+      wrap.innerHTML = '<div class="empty"><div class="glyph">📦</div><h3>No items yet</h3><p>Add décor, furniture or supplies to start tracking your studio\'s assets.</p><button class="btn primary sm" id="emptyAddItem" type="button">+ Add item</button></div>';
       document.getElementById("emptyAddItem").addEventListener("click", function () { openItemModal(null); });
       return;
     }
+    var today = todayStr();
     var rows = state.items.slice().sort(function (a, b) { return (a.name || "").localeCompare(b.name || ""); }).map(function (i) {
       var st = itemStatus(i);
-      return "<tr><td>" + escapeHtml(i.name || "—") + "</td><td>" + catPill(i.category) + '</td><td class="num">' + (i.qtyAvailable ?? 0) + " / " + (i.qtyTotal ?? 0) + '</td><td class="num">' + fmtMoney(i.unitPrice) + '</td><td><span class="pill status-' + st.key + '">' + st.label + '</span></td><td><div class="row-actions"><button class="icon-btn" data-edit="' + i.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + i.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
+      var reservedToday = itemReservedQty(i.id, today);
+      return "<tr><td>" + itemThumb(i) + "</td><td>" + escapeHtml(i.name || "—") + "</td><td>" + catPill(i.category) + '</td><td class="num">' + (i.qtyTotal ?? 0) + '</td><td class="num">' + reservedToday + '</td><td><span class="pill status-' + st.key + '">' + st.label + '</span></td><td><div class="row-actions"><button class="icon-btn" data-edit="' + i.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + i.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
     }).join("");
-    wrap.innerHTML = "<table><thead><tr><th>Item</th><th>Category</th><th>Available / total</th><th>Unit price</th><th>Status</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
+    wrap.innerHTML = "<table><thead><tr><th></th><th>Item</th><th>Category</th><th>Total owned</th><th>Reserved today</th><th>Status</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
     wrap.querySelectorAll("[data-edit]").forEach(function (b) { b.addEventListener("click", function () { openItemModal(state.items.find(function (x) { return x.id === b.dataset.edit; })); }); });
     wrap.querySelectorAll("[data-del]").forEach(function (b) { b.addEventListener("click", function () { confirmDelete("items", b.dataset.del, "item"); }); });
   }
 
+  // Downscales an uploaded photo client-side so item photos don't bloat the database.
+  function readAndResizeImage(file, maxDim, callback) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        var w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        var canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        callback(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
   function openItemModal(item) {
     var isEdit = !!item;
-    item = item || { name: "", category: "wedding", qtyAvailable: 1, qtyTotal: 1, reorderLevel: 2, unitCost: 0, unitPrice: 0 };
+    item = item || { name: "", category: "wedding", qtyTotal: 1, reorderLevel: 2, notes: "", photo: null };
+    var photoDraft = item.photo || null;
     var body = field("Item name", '<input type="text" id="f_name" value="' + escapeHtml(item.name) + '" placeholder="e.g. Gold Chiavari chairs">') +
       field("Event type", categorySelect("f_category", item.category)) +
-      '<div class="field-grid">' + field("Available qty", '<input type="number" id="f_qtyAvailable" min="0" value="' + (item.qtyAvailable ?? 0) + '">') + field("Total owned", '<input type="number" id="f_qtyTotal" min="0" value="' + (item.qtyTotal ?? 0) + '">') + "</div>" +
-      '<div class="field-grid">' + field("Reorder at", '<input type="number" id="f_reorderLevel" min="0" value="' + (item.reorderLevel ?? 2) + '">') + field("Unit price (rental/sale)", '<input type="number" id="f_unitPrice" min="0" value="' + (item.unitPrice ?? 0) + '">') + "</div>";
+      '<div class="field-grid">' + field("Total owned", '<input type="number" id="f_qtyTotal" min="0" value="' + (item.qtyTotal ?? 0) + '">') + field("Reorder / repair at", '<input type="number" id="f_reorderLevel" min="0" value="' + (item.reorderLevel ?? 2) + '">') + "</div>" +
+      field("Notes", '<textarea id="f_notes">' + escapeHtml(item.notes || "") + "</textarea>") +
+      '<div class="field"><label>Photo</label><div id="f_photoPreview"></div>' +
+      '<div class="toolbar" style="margin-top:8px"><input type="file" id="f_photoFile" accept="image/*"></div></div>';
+
     openModal(isEdit ? "Edit item" : "Add item", body, async function () {
-      var data = { name: val("f_name"), category: val("f_category"), qtyAvailable: Number(val("f_qtyAvailable")) || 0, qtyTotal: Number(val("f_qtyTotal")) || 0, reorderLevel: Number(val("f_reorderLevel")) || 0, unitPrice: Number(val("f_unitPrice")) || 0, unitCost: item.unitCost || 0 };
+      var data = { name: val("f_name"), category: val("f_category"), qtyTotal: Number(val("f_qtyTotal")) || 0, reorderLevel: Number(val("f_reorderLevel")) || 0, notes: val("f_notes"), photo: photoDraft };
       if (!data.name) { toast("Give the item a name"); return false; }
       if (isEdit) await api("PUT", "/api/items/" + item.id, data); else await api("POST", "/api/items", data);
       await loadAll(); renderItems(); renderOverview(); toast("Saved");
+    });
+
+    function refreshPhotoUI() {
+      var preview = document.getElementById("f_photoPreview");
+      preview.innerHTML = photoDraft
+        ? '<img src="' + photoDraft + '" alt="" style="width:100%;max-width:180px;border-radius:10px;display:block;margin-bottom:8px"><button class="btn sm" type="button" id="f_photoRemove">Remove photo</button>'
+        : '<p class="section-sub" style="margin:0 0 6px">No photo yet.</p>';
+      var removeBtn = document.getElementById("f_photoRemove");
+      if (removeBtn) removeBtn.addEventListener("click", function () { photoDraft = null; refreshPhotoUI(); });
+    }
+    refreshPhotoUI();
+    document.getElementById("f_photoFile").addEventListener("change", function (e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      readAndResizeImage(file, 480, function (dataUrl) { photoDraft = dataUrl; refreshPhotoUI(); });
     });
   }
 
@@ -416,7 +473,22 @@
         }).join("") + "</tbody></table></div>";
     }
 
-    var itemOptions = state.items.map(function (i) { return '<option value="' + i.id + '">' + escapeHtml(i.name) + "</option>"; }).join("");
+    function itemAvailability(itemId, date) {
+      var totalOwned = (state.items.find(function (i) { return i.id === itemId; }) || {}).qtyTotal || 0;
+      var reservedByOthers = itemReservedQty(itemId, date, isEdit ? evt.id : null);
+      var alreadyInThisEvent = itemsDraft.filter(function (it) { return it.itemId === itemId; }).reduce(function (s, it) { return s + (Number(it.qty) || 0); }, 0);
+      return Math.max(0, totalOwned - reservedByOthers - alreadyInThisEvent);
+    }
+
+    function itemPickerHtml() {
+      if (!state.items.length) return '<p class="section-sub" style="margin:6px 0 0">Add items in the Items tab first.</p>';
+      var date = val("f_date") || evt.date || todayStr();
+      var options = state.items.map(function (i) {
+        var avail = itemAvailability(i.id, date);
+        return '<option value="' + i.id + '">' + escapeHtml(i.name) + " — " + avail + " available</option>";
+      }).join("");
+      return '<div class="toolbar" style="margin-top:8px"><select id="f_itemPick">' + options + '</select><input type="number" id="f_itemQty" min="1" value="1" style="width:70px"><button class="btn sm" type="button" id="f_itemAdd">+ Add</button></div>';
+    }
 
     var body = '<div class="field-grid">' + field("Client name", '<input type="text" id="f_clientName" value="' + escapeHtml(evt.clientName) + '">') + field("Phone", '<input type="tel" id="f_phone" value="' + escapeHtml(evt.phone || "") + '">') + "</div>" +
       field("Event type", categorySelect("f_category", evt.category)) +
@@ -424,9 +496,7 @@
       '<div class="field-grid">' + field("Total amount", '<input type="number" id="f_totalAmount" min="0" value="' + (evt.totalAmount ?? 0) + '">') + field("Paid so far", '<input type="number" id="f_paidAmount" min="0" value="' + (evt.paidAmount ?? 0) + '">') + "</div>" +
       '<p class="section-sub" id="f_remaining" style="margin:0"></p>' +
       field("Notes", '<textarea id="f_notes">' + escapeHtml(evt.notes || "") + "</textarea>") +
-      '<div class="field"><label>Items used</label><div id="eventItemsList">' + itemsListHtml() + "</div>" +
-      (state.items.length ? '<div class="toolbar" style="margin-top:8px"><select id="f_itemPick">' + itemOptions + '</select><input type="number" id="f_itemQty" min="1" value="1" style="width:70px"><button class="btn sm" type="button" id="f_itemAdd">+ Add</button></div>' : '<p class="section-sub" style="margin:6px 0 0">Add items in the Items tab first.</p>') +
-      "</div>";
+      '<div class="field"><label>Items reserved for this date</label><div id="eventItemsList">' + itemsListHtml() + '</div><div id="eventItemPicker">' + itemPickerHtml() + "</div></div>";
 
     openModal(isEdit ? "Edit event" : "Add event", body, async function () {
       var data = {
@@ -436,7 +506,7 @@
       };
       if (!data.clientName) { toast("Add a client name"); return false; }
       if (isEdit) await api("PUT", "/api/events/" + evt.id, data); else await api("POST", "/api/events", data);
-      await loadAll(); renderEvents(); renderOverview(); renderExpenses(); toast("Saved");
+      await loadAll(); renderEvents(); renderOverview(); renderExpenses(); renderItems(); toast("Saved");
     });
 
     function updateRemaining() {
@@ -448,20 +518,32 @@
     document.getElementById("f_paidAmount").addEventListener("input", updateRemaining);
     updateRemaining();
 
+    function refreshItemPicker() {
+      document.getElementById("eventItemPicker").innerHTML = itemPickerHtml();
+      wireItemPicker();
+    }
     function refreshItemsList() {
       document.getElementById("eventItemsList").innerHTML = itemsListHtml();
       document.getElementById("eventItemsList").querySelectorAll("[data-rm-item]").forEach(function (b) {
-        b.addEventListener("click", function () { itemsDraft.splice(Number(b.dataset.rmItem), 1); refreshItemsList(); });
+        b.addEventListener("click", function () { itemsDraft.splice(Number(b.dataset.rmItem), 1); refreshItemsList(); refreshItemPicker(); });
       });
     }
-    var addBtn = document.getElementById("f_itemAdd");
-    if (addBtn) addBtn.addEventListener("click", function () {
-      var itemId = val("f_itemPick"); var qty = Number(val("f_itemQty")) || 1;
-      var item = state.items.find(function (i) { return i.id === itemId; });
-      if (!item) return;
-      itemsDraft.push({ itemId: itemId, name: item.name, qty: qty });
-      refreshItemsList();
-    });
+    function wireItemPicker() {
+      var addBtn = document.getElementById("f_itemAdd");
+      if (!addBtn) return;
+      addBtn.addEventListener("click", function () {
+        var itemId = val("f_itemPick"); var qty = Number(val("f_itemQty")) || 1;
+        var item = state.items.find(function (i) { return i.id === itemId; });
+        if (!item) return;
+        var avail = itemAvailability(itemId, val("f_date") || todayStr());
+        if (qty > avail) { toast(avail > 0 ? ("Only " + avail + " available on this date") : "None available on this date"); return; }
+        itemsDraft.push({ itemId: itemId, name: item.name, qty: qty });
+        refreshItemsList();
+        refreshItemPicker();
+      });
+    }
+    wireItemPicker();
+    document.getElementById("f_date").addEventListener("change", refreshItemPicker);
   }
 
   // ---------------- EXPENSES ----------------
