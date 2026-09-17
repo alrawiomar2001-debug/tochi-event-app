@@ -123,7 +123,12 @@
         <div><h2>Inventory</h2><p class="section-sub">Décor, furniture and supplies shared across all event types.</p></div>
         <button class="btn primary" id="addItemBtn" type="button">+ Add item</button>
       </div>
-      <div class="card"><div class="table-wrap" id="itemsTableWrap"></div></div>
+      <div class="card">
+        <div class="toolbar" style="padding:14px 16px 0">
+          <input type="text" id="itemSearchInput" placeholder="Search items by name or category…" style="max-width:280px">
+        </div>
+        <div class="table-wrap" id="itemsTableWrap"></div>
+      </div>
     </section>
 
     <!-- APPOINTMENTS -->
@@ -153,7 +158,19 @@
         <div><h2>Events</h2><p class="section-sub">Revenue, payment status and items used per event.</p></div>
         <button class="btn primary" id="addEventBtn" type="button">+ Add event</button>
       </div>
-      <div class="card"><div class="table-wrap" id="eventsTableWrap"></div></div>
+      <div class="card">
+        <div class="toolbar" style="padding:14px 16px 0">
+          <input type="text" id="eventSearchInput" placeholder="Search by client name…" style="max-width:220px">
+          <select id="eventCategoryFilter"><option value="">All event types</option></select>
+          <select id="eventStatusFilter">
+            <option value="">All payment statuses</option>
+            <option value="paid">Paid</option>
+            <option value="partial">Partial</option>
+            <option value="unpaid">Unpaid</option>
+          </select>
+        </div>
+        <div class="table-wrap" id="eventsTableWrap"></div>
+      </div>
     </section>
 
     <!-- EXPENSES -->
@@ -191,6 +208,7 @@
 
 <div class="toast-wrap" id="toastWrap"></div>
 <div id="modalRoot"></div>
+<div id="printArea"></div>
 <script src="app.js"></script>
 </body>
 </html>

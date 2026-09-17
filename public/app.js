@@ -8,6 +8,14 @@
     baby_welcoming: { label: "Baby welcoming", color: "var(--cat-baby)" },
   };
   var EXPENSE_CATEGORIES = ["Venue & décor", "Staffing", "Transport", "Item purchase/repair", "Marketing", "Other"];
+  // Fixed defaults plus any custom category you've typed before — once used
+  // on a saved expense, it sticks around as a suggestion going forward.
+  function expenseCategoryOptions() {
+    var list = EXPENSE_CATEGORIES.slice(), seen = {};
+    list.forEach(function (c) { seen[c] = true; });
+    state.expenses.forEach(function (e) { if (e.category && !seen[e.category]) { seen[e.category] = true; list.push(e.category); } });
+    return list;
+  }
   var CURRENCY = "IQD";
 
   var token = localStorage.getItem("tochi_token") || null;
@@ -17,6 +25,8 @@
   var apptFilters = { category: "", status: "" };
   var calState = { month: new Date(new Date().getFullYear(), new Date().getMonth(), 1), selected: null };
   var breakdownRange = "month";
+  var itemSearch = "";
+  var eventFilters = { search: "", category: "", status: "" };
 
   // ---------------- utils ----------------
   function fmtMoney(n) {
@@ -266,6 +276,17 @@
     catSelect.addEventListener("change", function () { apptFilters.category = catSelect.value; renderAppointments(); });
     document.getElementById("apptStatusFilter").addEventListener("change", function (e) { apptFilters.status = e.target.value; renderAppointments(); });
 
+    document.getElementById("itemSearchInput").addEventListener("input", function (e) { itemSearch = e.target.value; renderItems(); });
+
+    var eventCatSelect = document.getElementById("eventCategoryFilter");
+    Object.keys(CATEGORIES).forEach(function (k) {
+      var o = document.createElement("option"); o.value = k; o.textContent = CATEGORIES[k].label;
+      eventCatSelect.appendChild(o);
+    });
+    document.getElementById("eventSearchInput").addEventListener("input", function (e) { eventFilters.search = e.target.value; renderEvents(); });
+    eventCatSelect.addEventListener("change", function () { eventFilters.category = eventCatSelect.value; renderEvents(); });
+    document.getElementById("eventStatusFilter").addEventListener("change", function (e) { eventFilters.status = e.target.value; renderEvents(); });
+
     document.getElementById("addItemBtn").addEventListener("click", function () { openItemModal(null); });
     document.getElementById("addApptBtn").addEventListener("click", function () { openApptModal(null); });
     document.getElementById("addEventBtn").addEventListener("click", function () { openEventModal(null, null); });
@@ -408,14 +429,40 @@
       document.getElementById("emptyAddItem").addEventListener("click", function () { openItemModal(null); });
       return;
     }
+    var q = itemSearch.trim().toLowerCase();
+    var list = state.items.filter(function (i) {
+      if (!q) return true;
+      return (i.name || "").toLowerCase().indexOf(q) !== -1 || (i.category || "").toLowerCase().indexOf(q) !== -1;
+    });
+    if (list.length === 0) { wrap.innerHTML = '<div class="empty"><div class="glyph">🔍</div><p>No items match "' + escapeHtml(itemSearch) + '".</p></div>'; return; }
     var today = todayStr();
-    var rows = state.items.slice().sort(function (a, b) { return (a.name || "").localeCompare(b.name || ""); }).map(function (i) {
+    var rows = list.slice().sort(function (a, b) { return (a.name || "").localeCompare(b.name || ""); }).map(function (i) {
       var reservedToday = itemReservedQty(i.id, today, today);
-      return "<tr><td>" + itemThumb(i) + "</td><td>" + escapeHtml(i.name || "—") + "</td><td>" + itemCatPill(i.category) + '</td><td class="num">' + (i.qtyTotal ?? 0) + '</td><td class="num">' + reservedToday + '</td><td><div class="row-actions"><button class="icon-btn" data-edit="' + i.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + i.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
+      return "<tr><td>" + itemThumb(i) + "</td><td>" + escapeHtml(i.name || "—") + "</td><td>" + itemCatPill(i.category) + '</td><td class="num">' + (i.qtyTotal ?? 0) + '</td><td class="num">' + reservedToday + '</td><td><div class="row-actions"><button class="icon-btn" data-view="' + i.id + '" type="button" title="View reservations">👁</button><button class="icon-btn" data-edit="' + i.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + i.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
     }).join("");
     wrap.innerHTML = "<table><thead><tr><th></th><th>Item</th><th>Category</th><th>Total owned</th><th>Reserved today</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
+    wrap.querySelectorAll("[data-view]").forEach(function (b) { b.addEventListener("click", function () { openItemReservationsModal(state.items.find(function (x) { return x.id === b.dataset.view; })); }); });
     wrap.querySelectorAll("[data-edit]").forEach(function (b) { b.addEventListener("click", function () { openItemModal(state.items.find(function (x) { return x.id === b.dataset.edit; })); }); });
     wrap.querySelectorAll("[data-del]").forEach(function (b) { b.addEventListener("click", function () { confirmDelete("items", b.dataset.del, "item"); }); });
+  }
+
+  function openItemReservationsModal(item) {
+    var rows = state.events
+      .map(function (e) { var it = (e.items || []).find(function (x) { return x.itemId === item.id; }); return it ? { e: e, qty: it.qty } : null; })
+      .filter(Boolean)
+      .sort(function (a, b) { return (a.e.reserveFrom || a.e.date || "").localeCompare(b.e.reserveFrom || b.e.date || ""); });
+    var body;
+    if (!rows.length) {
+      body = '<div class="empty"><div class="glyph">📭</div><p>No events have this item reserved yet.</p></div>';
+    } else {
+      body = '<div class="table-wrap"><table><thead><tr><th>Event</th><th>Dates</th><th>Qty</th></tr></thead><tbody>' +
+        rows.map(function (r) {
+          var from = r.e.reserveFrom || r.e.date || "—", until = r.e.reserveUntil || r.e.date || "—";
+          var dateLabel = from === until ? escapeHtml(from) : escapeHtml(from) + " → " + escapeHtml(until);
+          return "<tr><td>" + escapeHtml(r.e.clientName || "Client") + " " + catPill(r.e.category) + '</td><td class="mono">' + dateLabel + '</td><td class="num">' + r.qty + "</td></tr>";
+        }).join("") + "</tbody></table></div>";
+    }
+    openModal("Reservations — " + item.name, body, null, true);
   }
 
   // Downscales an uploaded photo client-side so item photos don't bloat the database.
@@ -544,7 +591,15 @@
       document.getElementById("emptyAddEvent").addEventListener("click", function () { openEventModal(null, null); });
       return;
     }
-    var rows = state.events.map(function (e) {
+    var q = eventFilters.search.trim().toLowerCase();
+    var list = state.events.filter(function (e) {
+      if (q && (e.clientName || "").toLowerCase().indexOf(q) === -1) return false;
+      if (eventFilters.category && e.category !== eventFilters.category) return false;
+      if (eventFilters.status && paymentInfo(e.totalAmount, e.paidAmount).key !== eventFilters.status) return false;
+      return true;
+    });
+    if (list.length === 0) { wrap.innerHTML = '<div class="empty"><div class="glyph">🔍</div><p>No events match these filters.</p></div>'; return; }
+    var rows = list.map(function (e) {
       var pay = paymentInfo(e.totalAmount, e.paidAmount);
       var profitCell = "";
       if (isOwner) {
@@ -552,10 +607,11 @@
         var profit = (Number(e.totalAmount) || 0) - direct;
         profitCell = '<td class="num">' + fmtMoney(direct) + '</td><td class="num" style="color:' + (profit >= 0 ? "var(--success)" : "var(--danger)") + '">' + fmtMoney(profit) + "</td>";
       }
-      return "<tr><td class=\"mono\">" + escapeHtml(e.date || "—") + "</td><td>" + escapeHtml(e.clientName || "—") + "</td><td>" + catPill(e.category) + '</td><td class="num">' + fmtMoney(e.totalAmount) + '</td><td class="num">' + fmtMoney(e.paidAmount) + '</td><td class="num">' + fmtMoney(pay.remaining) + '</td><td><span class="pill status-' + pay.key + '">' + pay.label + "</span></td>" + profitCell + '<td><div class="row-actions"><button class="icon-btn" data-edit="' + e.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + e.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
+      return "<tr><td class=\"mono\">" + escapeHtml(e.date || "—") + "</td><td>" + escapeHtml(e.clientName || "—") + "</td><td>" + catPill(e.category) + '</td><td class="num">' + fmtMoney(e.totalAmount) + '</td><td class="num">' + fmtMoney(e.paidAmount) + '</td><td class="num">' + fmtMoney(pay.remaining) + '</td><td><span class="pill status-' + pay.key + '">' + pay.label + "</span></td>" + profitCell + '<td><div class="row-actions"><button class="icon-btn" data-print="' + e.id + '" type="button" title="Print quote">🖨</button><button class="icon-btn" data-edit="' + e.id + '" type="button" title="Edit">✎</button><button class="icon-btn" data-del="' + e.id + '" type="button" title="Delete">🗑</button></div></td></tr>';
     }).join("");
     var profitHead = isOwner ? "<th>Expenses</th><th>Profit</th>" : "";
     wrap.innerHTML = "<table><thead><tr><th>Date</th><th>Client</th><th>Type</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Status</th>" + profitHead + "<th></th></tr></thead><tbody>" + rows + "</tbody></table>";
+    wrap.querySelectorAll("[data-print]").forEach(function (b) { b.addEventListener("click", function () { printEventQuote(state.events.find(function (x) { return x.id === b.dataset.print; })); }); });
     wrap.querySelectorAll("[data-edit]").forEach(function (b) { b.addEventListener("click", function () { openEventModal(state.events.find(function (x) { return x.id === b.dataset.edit; }), null); }); });
     wrap.querySelectorAll("[data-del]").forEach(function (b) { b.addEventListener("click", function () { confirmDelete("events", b.dataset.del, "event"); }); });
   }
@@ -671,6 +727,31 @@
     wireItemPicker();
   }
 
+  function printEventQuote(e) {
+    var pay = paymentInfo(e.totalAmount, e.paidAmount);
+    var itemsRows = (e.items || []).map(function (it) {
+      return "<tr><td>" + escapeHtml(it.name) + '</td><td class="num">' + it.qty + "</td></tr>";
+    }).join("");
+    var html =
+      '<div class="quote-head"><img src="assets/logo.jpg" alt=""><div><h1>Tochi Event</h1><div class="biz-sub">Studio operations — Event quote</div></div></div>' +
+      '<div class="quote-title">' + catLabel(e.category) + " for " + escapeHtml(e.clientName || "Client") + "</div>" +
+      '<div class="quote-grid">' +
+        "<div><strong>Date</strong>: " + escapeHtml(e.date || "—") + (e.time ? " at " + escapeHtml(e.time) : "") + "</div>" +
+        "<div><strong>Phone</strong>: " + escapeHtml(e.phone || "—") + "</div>" +
+        "<div><strong>Location</strong>: " + escapeHtml(e.location || "—") + "</div>" +
+        "<div><strong>Guests</strong>: " + escapeHtml(String(e.guestCount || "—")) + "</div>" +
+      "</div>" +
+      (itemsRows ? '<table class="quote-table"><thead><tr><th>Item</th><th>Qty</th></tr></thead><tbody>' + itemsRows + "</tbody></table>" : "") +
+      '<div class="quote-summary">' +
+        "<div><span>Total</span><span>" + fmtMoney(e.totalAmount) + "</span></div>" +
+        "<div><span>Paid</span><span>" + fmtMoney(e.paidAmount) + "</span></div>" +
+        '<div class="total"><span>Balance due (' + pay.label + ")</span><span>" + fmtMoney(pay.remaining) + "</span></div>" +
+      "</div>" +
+      '<div class="quote-footer">Generated ' + todayStr() + " · Tochi Event Studio Operations</div>";
+    document.getElementById("printArea").innerHTML = html;
+    window.print();
+  }
+
   // ---------------- EXPENSES ----------------
   function eventLabel(id) {
     if (!id) return "General";
@@ -763,7 +844,7 @@
       '<div class="field"><label>Type</label><div class="range-toggle" id="f_expType"><button type="button" data-type="event" class="' + (isGeneral ? "" : "active") + '">Event expense</button><button type="button" data-type="general" class="' + (isGeneral ? "active" : "") + '">General (overhead)</button></div></div>' +
       '<div class="field" id="f_eventWrap"' + (isGeneral ? " hidden" : "") + ">" + field("Which event", '<select id="f_eventId">' + eventOptions + "</select>") + "</div>" +
       '<div class="field-grid">' + field("Date", '<input type="date" id="f_date" value="' + escapeHtml(exp.date || todayStr()) + '">') + field("Amount", '<input type="number" id="f_amount" min="0" value="' + (exp.amount ?? 0) + '">') + "</div>" +
-      field("Category", '<select id="f_category">' + EXPENSE_CATEGORIES.map(function (c) { return '<option value="' + escapeHtml(c) + '" ' + (exp.category === c ? "selected" : "") + ">" + escapeHtml(c) + "</option>"; }).join("") + "</select>") +
+      field("Category", '<input type="text" id="f_category" list="expenseCatList" value="' + escapeHtml(exp.category || "") + '"><datalist id="expenseCatList">' + expenseCategoryOptions().map(function (c) { return "<option value=\"" + escapeHtml(c) + "\">"; }).join("") + "</datalist>") +
       field("Notes", '<textarea id="f_notes">' + escapeHtml(exp.notes || "") + "</textarea>");
     openModal(isEdit ? "Edit expense" : "Add expense", body, async function () {
       var type = document.getElementById("f_expType").querySelector(".active").dataset.type;
@@ -851,13 +932,17 @@
   }
   function val(id) { var el = document.getElementById(id); return el ? (el.value.trim ? el.value.trim() : el.value) : ""; }
 
-  function openModal(title, bodyHtml, onSave) {
+  function openModal(title, bodyHtml, onSave, viewOnly) {
     var root = document.getElementById("modalRoot");
-    root.innerHTML = '<div class="overlay" id="ovl"><div class="modal" role="dialog" aria-modal="true" aria-label="' + escapeHtml(title) + '"><div class="modal-head"><h3>' + escapeHtml(title) + '</h3><button class="icon-btn" id="modalClose" type="button" aria-label="Close">✕</button></div><div class="form-body">' + bodyHtml + '</div><div class="modal-foot"><button class="btn" id="modalCancel" type="button">Cancel</button><button class="btn primary" id="modalSave" type="button">Save</button></div></div></div>';
+    var footer = viewOnly
+      ? '<div class="modal-foot"><button class="btn primary" id="modalCancel" type="button">Close</button></div>'
+      : '<div class="modal-foot"><button class="btn" id="modalCancel" type="button">Cancel</button><button class="btn primary" id="modalSave" type="button">Save</button></div>';
+    root.innerHTML = '<div class="overlay" id="ovl"><div class="modal" role="dialog" aria-modal="true" aria-label="' + escapeHtml(title) + '"><div class="modal-head"><h3>' + escapeHtml(title) + '</h3><button class="icon-btn" id="modalClose" type="button" aria-label="Close">✕</button></div><div class="form-body">' + bodyHtml + '</div>' + footer + '</div></div>';
     function close() { root.innerHTML = ""; }
     document.getElementById("modalClose").addEventListener("click", close);
     document.getElementById("modalCancel").addEventListener("click", close);
     document.getElementById("ovl").addEventListener("click", function (e) { if (e.target.id === "ovl") close(); });
+    if (viewOnly) return;
     document.getElementById("modalSave").addEventListener("click", async function () {
       var saveBtn = document.getElementById("modalSave");
       saveBtn.disabled = true; saveBtn.textContent = "Saving…";
