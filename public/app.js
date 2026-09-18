@@ -60,6 +60,28 @@
   }
   function todayStr() { return new Date().toISOString().slice(0, 10); }
 
+  // Animates KPI numbers counting up to their final value on first paint.
+  // Skips straight to the final text for anyone with reduced-motion set.
+  function animateKpiValues(container) {
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    container.querySelectorAll(".kpi .value").forEach(function (el) {
+      var finalText = el.textContent;
+      var m = finalText.match(/^(\D*?)(-?[\d,]+)(.*)$/);
+      if (!m || reduce) return;
+      var prefix = m[1], target = parseInt(m[2].replace(/,/g, ""), 10) || 0, suffix = m[3];
+      var start = null, duration = 550;
+      function step(ts) {
+        if (start === null) start = ts;
+        var p = Math.min((ts - start) / duration, 1);
+        var eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = prefix + Math.round(target * eased).toLocaleString("en-US") + suffix;
+        if (p < 1) requestAnimationFrame(step);
+        else el.textContent = finalText;
+      }
+      requestAnimationFrame(step);
+    });
+  }
+
   // ---------------- theme ----------------
   function currentTheme() {
     var attr = document.documentElement.getAttribute("data-theme");
@@ -325,7 +347,9 @@
     } else {
       html += '<div class="card kpi locked"><div class="glyph">🔒</div><div><div class="label" style="margin-bottom:2px">Profit &amp; expenses</div><div class="sub">Owner access only</div></div></div>';
     }
-    document.getElementById("kpiGrid").innerHTML = html;
+    var kpiGrid = document.getElementById("kpiGrid");
+    kpiGrid.innerHTML = html;
+    animateKpiValues(kpiGrid);
 
     renderCatChart(events);
     renderTrendChart();
@@ -776,10 +800,12 @@
     var expTotal = state.expenses.reduce(function (s, x) { return s + (Number(x.amount) || 0); }, 0);
     var profit = revenue - expTotal;
     var margin = revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
-    document.getElementById("profitKpiGrid").innerHTML =
+    var profitKpiGrid = document.getElementById("profitKpiGrid");
+    profitKpiGrid.innerHTML =
       '<div class="card kpi"><div class="label">All-time revenue</div><div class="value">' + fmtMoney(revenue) + "</div><div class=\"sub\">" + state.events.length + ' events</div></div>' +
       '<div class="card kpi"><div class="label">All-time expenses</div><div class="value">' + fmtMoney(expTotal) + "</div><div class=\"sub\">" + state.expenses.length + ' entries</div></div>' +
       '<div class="card kpi"><div class="label">All-time profit</div><div class="value" style="color:' + (profit >= 0 ? "var(--success)" : "var(--danger)") + '">' + fmtMoney(profit) + '</div><div class="sub">' + margin + "% margin</div></div>";
+    animateKpiValues(profitKpiGrid);
 
     renderMonthlyBreakdown();
 
