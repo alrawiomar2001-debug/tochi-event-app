@@ -488,8 +488,8 @@
     item = item || { name: "", category: "", qtyTotal: 1, notes: "", photo: null };
     var photoDraft = item.photo || null;
     var catOptions = itemCategoryOptions().map(function (c) { return "<option value=\"" + escapeHtml(c) + "\">"; }).join("");
-    var body = field("Item name", '<input type="text" id="f_name" value="' + escapeHtml(item.name) + '" placeholder="e.g. Gold Chiavari chairs">') +
-      field("Category", '<input type="text" id="f_category" list="itemCatList" value="' + escapeHtml(item.category || "") + '" placeholder="e.g. Chairs, Tableware, Lighting"><datalist id="itemCatList">' + catOptions + "</datalist>") +
+    var body = field("Item name", '<input type="text" id="f_name" autocomplete="off" value="' + escapeHtml(item.name) + '" placeholder="e.g. Gold Chiavari chairs">') +
+      field("Category", '<input type="text" id="f_category" autocomplete="off" list="itemCatList" value="' + escapeHtml(item.category || "") + '" placeholder="e.g. Chairs, Tableware, Lighting"><datalist id="itemCatList">' + catOptions + "</datalist>") +
       field("Total owned", '<input type="number" id="f_qtyTotal" min="0" value="' + (item.qtyTotal ?? 0) + '">') +
       field("Notes", '<textarea id="f_notes">' + escapeHtml(item.notes || "") + "</textarea>") +
       '<div class="field"><label>Photo</label><div id="f_photoPreview"></div>' +
@@ -545,10 +545,10 @@
   function openApptModal(appt) {
     var isEdit = !!appt;
     appt = appt || { clientName: "", phone: "", category: "wedding", date: todayStr(), time: "", location: "", guestCount: "", status: "pending", quotedAmount: 0, notes: "" };
-    var body = '<div class="field-grid">' + field("Client name", '<input type="text" id="f_clientName" value="' + escapeHtml(appt.clientName) + '" placeholder="e.g. Zainab &amp; Ali">') + field("Phone", '<input type="tel" id="f_phone" value="' + escapeHtml(appt.phone || "") + '">') + "</div>" +
+    var body = '<div class="field-grid">' + field("Client name", '<input type="text" id="f_clientName" autocomplete="off" value="' + escapeHtml(appt.clientName) + '" placeholder="e.g. Zainab &amp; Ali">') + field("Phone", '<input type="tel" id="f_phone" autocomplete="off" value="' + escapeHtml(appt.phone || "") + '">') + "</div>" +
       field("Event type", categorySelect("f_category", appt.category)) +
       '<div class="field-grid">' + field("Date", '<input type="date" id="f_date" value="' + escapeHtml(appt.date || "") + '">') + field("Time", '<input type="time" id="f_time" value="' + escapeHtml(appt.time || "") + '">') + "</div>" +
-      '<div class="field-grid">' + field("Location", '<input type="text" id="f_location" value="' + escapeHtml(appt.location || "") + '">') + field("Guest count", '<input type="number" id="f_guestCount" min="0" value="' + escapeHtml(appt.guestCount || "") + '">') + "</div>" +
+      '<div class="field-grid">' + field("Location", '<input type="text" id="f_location" autocomplete="off" value="' + escapeHtml(appt.location || "") + '">') + field("Guest count", '<input type="number" id="f_guestCount" min="0" value="' + escapeHtml(appt.guestCount || "") + '">') + "</div>" +
       '<div class="field-grid">' + field("Quoted amount", '<input type="number" id="f_quotedAmount" min="0" value="' + (appt.quotedAmount ?? 0) + '">') + field("Status", '<select id="f_status">' + ["pending", "confirmed", "completed", "cancelled"].map(function (s) { return '<option value="' + s + '" ' + (appt.status === s ? "selected" : "") + ">" + labelStatus(s) + "</option>"; }).join("") + "</select>") + "</div>" +
       field("Notes", '<textarea id="f_notes">' + escapeHtml(appt.notes || "") + "</textarea>");
 
@@ -662,10 +662,10 @@
 
     var body =
       '<div class="form-section"><div class="form-section-title">Client &amp; event</div>' +
-        '<div class="field-grid">' + field("Client name", '<input type="text" id="f_clientName" value="' + escapeHtml(evt.clientName) + '">') + field("Phone", '<input type="tel" id="f_phone" value="' + escapeHtml(evt.phone || "") + '">') + "</div>" +
+        '<div class="field-grid">' + field("Client name", '<input type="text" id="f_clientName" autocomplete="off" value="' + escapeHtml(evt.clientName) + '">') + field("Phone", '<input type="tel" id="f_phone" autocomplete="off" value="' + escapeHtml(evt.phone || "") + '">') + "</div>" +
         field("Event type", categorySelect("f_category", evt.category)) +
         '<div class="field-grid">' + field("Date", '<input type="date" id="f_date" value="' + escapeHtml(evt.date || todayStr()) + '">') + field("Time", '<input type="time" id="f_time" value="' + escapeHtml(evt.time || "") + '">') + "</div>" +
-        '<div class="field-grid">' + field("Location", '<input type="text" id="f_location" value="' + escapeHtml(evt.location || "") + '">') + field("Guest count", '<input type="number" id="f_guestCount" min="0" value="' + escapeHtml(evt.guestCount || "") + '">') + "</div>" +
+        '<div class="field-grid">' + field("Location", '<input type="text" id="f_location" autocomplete="off" value="' + escapeHtml(evt.location || "") + '">') + field("Guest count", '<input type="number" id="f_guestCount" min="0" value="' + escapeHtml(evt.guestCount || "") + '">') + "</div>" +
         field("Notes", '<textarea id="f_notes">' + escapeHtml(evt.notes || "") + "</textarea>") +
       "</div>" +
       '<div class="form-section"><div class="form-section-title">Payment</div>' +
@@ -844,20 +844,27 @@
 
   function openExpenseModal(exp) {
     var isEdit = !!exp;
-    exp = exp || { name: "", date: todayStr(), category: EXPENSE_CATEGORIES[0], amount: 0, notes: "", eventId: "" };
+    exp = exp || { name: "", date: todayStr(), category: "", amount: 0, notes: "", eventId: "" };
     var isGeneral = !exp.eventId;
     var eventOptions = state.events.map(function (e) { return '<option value="' + e.id + '" ' + (exp.eventId === e.id ? "selected" : "") + ">" + escapeHtml(e.clientName || "Event") + " · " + escapeHtml(e.date || "") + "</option>"; }).join("");
-    var body = field("Expense name", '<input type="text" id="f_name" value="' + escapeHtml(exp.name || "") + '" placeholder="e.g. Truck rental, Office rent">') +
+    var catList = expenseCategoryOptions();
+    var catOptionsHtml = '<option value="" ' + (exp.category ? "" : "selected") + ">Choose a category…</option>" +
+      catList.map(function (c) { return '<option value="' + escapeHtml(c) + '" ' + (exp.category === c ? "selected" : "") + ">" + escapeHtml(c) + "</option>"; }).join("") +
+      '<option value="__new__">+ Add new category…</option>';
+    var body = field("Expense name", '<input type="text" id="f_name" autocomplete="off" value="' + escapeHtml(exp.name || "") + '" placeholder="e.g. Truck rental, Office rent">') +
       '<div class="field"><label>Type</label><div class="range-toggle" id="f_expType"><button type="button" data-type="event" class="' + (isGeneral ? "" : "active") + '">Event expense</button><button type="button" data-type="general" class="' + (isGeneral ? "active" : "") + '">General (overhead)</button></div></div>' +
       '<div class="field" id="f_eventWrap"' + (isGeneral ? " hidden" : "") + ">" + field("Which event", '<select id="f_eventId">' + eventOptions + "</select>") + "</div>" +
       '<div class="field-grid">' + field("Date", '<input type="date" id="f_date" value="' + escapeHtml(exp.date || todayStr()) + '">') + field("Amount", '<input type="number" id="f_amount" min="0" value="' + (exp.amount ?? 0) + '">') + "</div>" +
-      field("Category", '<input type="text" id="f_category" list="expenseCatList" value="' + escapeHtml(exp.category || "") + '"><datalist id="expenseCatList">' + expenseCategoryOptions().map(function (c) { return "<option value=\"" + escapeHtml(c) + "\">"; }).join("") + "</datalist>") +
+      '<div class="field"><label>Category</label><select id="f_category">' + catOptionsHtml + '</select><input type="text" id="f_categoryNew" autocomplete="off" placeholder="New category name" hidden style="margin-top:8px"></div>' +
       field("Notes", '<textarea id="f_notes">' + escapeHtml(exp.notes || "") + "</textarea>");
     openModal(isEdit ? "Edit expense" : "Add expense", body, async function () {
       var type = document.getElementById("f_expType").querySelector(".active").dataset.type;
       var eventId = type === "event" ? val("f_eventId") : null;
       if (type === "event" && !eventId) { toast("Pick which event this expense belongs to"); return false; }
-      var data = { name: val("f_name"), date: val("f_date"), category: val("f_category"), amount: Number(val("f_amount")) || 0, notes: val("f_notes"), eventId: eventId };
+      var category = val("f_category");
+      if (category === "__new__") category = val("f_categoryNew");
+      if (!category) { toast("Pick or add a category"); return false; }
+      var data = { name: val("f_name"), date: val("f_date"), category: category, amount: Number(val("f_amount")) || 0, notes: val("f_notes"), eventId: eventId };
       if (!data.name) { toast("Give the expense a name"); return false; }
       if (isEdit) await api("PUT", "/api/expenses/" + exp.id, data); else await api("POST", "/api/expenses", data);
       await loadAll(); renderExpenses(); renderOverview(); renderEvents(); toast("Saved");
@@ -871,6 +878,12 @@
       if (!btn) return;
       document.querySelectorAll("#f_expType button").forEach(function (b) { b.classList.toggle("active", b === btn); });
       document.getElementById("f_eventWrap").hidden = btn.dataset.type !== "event";
+    });
+    document.getElementById("f_category").addEventListener("change", function (e) {
+      var isNew = e.target.value === "__new__";
+      var newInput = document.getElementById("f_categoryNew");
+      newInput.hidden = !isNew;
+      if (isNew) newInput.focus();
     });
   }
 
@@ -913,11 +926,11 @@
     var isEdit = !!user;
     user = user || { name: "", email: "", role: "staff" };
     var body = '<div class="field-grid">' +
-        field("Name", '<input type="text" id="f_name" value="' + escapeHtml(user.name) + '">') +
+        field("Name", '<input type="text" id="f_name" autocomplete="off" value="' + escapeHtml(user.name) + '">') +
         field("Role", '<select id="f_role"><option value="staff"' + (user.role === "staff" ? " selected" : "") + '>Staff (no expenses/profit)</option><option value="owner"' + (user.role === "owner" ? " selected" : "") + ">Owner (full access)</option></select>") +
       "</div>" +
-      field("Email", '<input type="email" id="f_email" value="' + escapeHtml(user.email) + '">') +
-      field(isEdit ? "New password" : "Temporary password", '<input type="text" id="f_password" placeholder="' + (isEdit ? "Leave blank to keep current password" : "They should change this after signing in") + '">');
+      field("Email", '<input type="email" id="f_email" autocomplete="off" value="' + escapeHtml(user.email) + '">') +
+      field(isEdit ? "New password" : "Temporary password", '<input type="text" id="f_password" autocomplete="off" placeholder="' + (isEdit ? "Leave blank to keep current password" : "They should change this after signing in") + '">');
     openModal(isEdit ? "Edit team member" : "Add team member", body, async function () {
       var data = { name: val("f_name"), email: val("f_email"), password: val("f_password"), role: val("f_role") };
       if (!data.name || !data.email) { toast("Fill in name and email"); return false; }
